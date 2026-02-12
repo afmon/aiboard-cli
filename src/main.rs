@@ -41,11 +41,11 @@ fn dirs_fallback() -> PathBuf {
     if let Some(dir) = std::env::var_os("AIBOARD_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    if let Some(data) = std::env::var_os("LOCALAPPDATA") {
-        return PathBuf::from(data).join("aiboard");
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        return PathBuf::from(profile).join(".aiboard");
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join(".local").join("share").join("aiboard");
+        return PathBuf::from(home).join(".aiboard");
     }
     PathBuf::from(".aiboard")
 }
@@ -63,7 +63,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
     let thread_uc = ThreadUseCase::new(thr(), msg());
     let message_uc = MessageUseCase::new(msg());
-    let hook_uc = HookUseCase::new(msg());
+    let hook_uc = HookUseCase::new(thr(), msg());
     let cleanup_uc = CleanupUseCase::new(thr(), msg());
     let thread_uc2 = ThreadUseCase::new(thr(), msg());
 

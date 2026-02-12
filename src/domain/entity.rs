@@ -21,6 +21,7 @@ pub struct Message {
     pub content: String,
     pub metadata: Option<serde_json::Value>,
     pub parent_id: Option<String>,
+    pub source: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

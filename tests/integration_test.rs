@@ -335,30 +335,13 @@ fn hook_ingest() {
         .assert()
         .success();
 
-    // Ingest a PostToolUse event
-    let json2 = serde_json::json!({
-        "session_id": "hook-session-1",
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Read",
-        "tool_input": {"file_path": "/tmp/test.rs"},
-        "tool_response": "file contents here"
-    });
-
-    cmd()
-        .args(["hook", "ingest", "--thread", &thread_id])
-        .write_stdin(json2.to_string())
-        .env("AIBOARD_DATA_DIR", db_path)
-        .assert()
-        .success();
-
     // Verify
     cmd()
         .args(["message", "read", "--thread", &thread_id])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("hello from hook"))
-        .stdout(predicate::str::contains("Read"));
+        .stdout(predicate::str::contains("hello from hook"));
 }
 
 #[test]
@@ -448,15 +431,12 @@ fn nonexistent_thread_read() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().to_str().unwrap();
 
-    // Reading from a nonexistent thread should succeed but return empty output
-    let output = cmd()
+    // Reading from a nonexistent thread should fail with ThreadNotFound
+    cmd()
         .args(["message", "read", "--thread", "nonexistent-thread-id"])
         .env("AIBOARD_DATA_DIR", db_path)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.trim().is_empty());
+        .assert()
+        .failure();
 }
 
 #[test]
@@ -938,7 +918,7 @@ fn hook_ingest_user_prompt_submit() {
 }
 
 #[test]
-fn hook_ingest_post_tool_use() {
+fn hook_ingest_post_tool_use_skipped() {
     let (_dir, db_path) = test_db();
     let thread_id = create_thread(&db_path, "hook-post-tool");
 
@@ -958,9 +938,10 @@ fn hook_ingest_post_tool_use() {
         .write_stdin(json.to_string())
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains("0 件"));
 
-    // Verify role=tool, content contains tool_name/input/response
+    // Verify no messages stored
     let output = cmd()
         .args(["message", "read", "--thread", &thread_id, "--format", "json"])
         .env("AIBOARD_DATA_DIR", &db_path)
@@ -971,12 +952,7 @@ fn hook_ingest_post_tool_use() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let arr = parsed.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["role"], "tool");
-    let content = arr[0]["content"].as_str().unwrap();
-    assert!(content.contains("Bash"), "content should contain tool_name");
-    assert!(content.contains("ls -la"), "content should contain tool_input");
-    assert!(content.contains("total 42"), "content should contain tool_response");
+    assert_eq!(arr.len(), 0);
 }
 
 #[test]

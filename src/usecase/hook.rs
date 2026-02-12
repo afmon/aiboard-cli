@@ -1,16 +1,17 @@
-use crate::domain::entity::{Message, Role};
+use crate::domain::entity::{Message, Role, Thread};
 use crate::domain::error::DomainError;
-use crate::domain::repository::MessageRepository;
+use crate::domain::repository::{MessageRepository, ThreadRepository};
 use chrono::Utc;
 use uuid::Uuid;
 
-pub struct HookUseCase<R: MessageRepository> {
+pub struct HookUseCase<T: ThreadRepository, R: MessageRepository> {
+    pub(crate) thread_repo: T,
     pub(crate) repo: R,
 }
 
-impl<R: MessageRepository> HookUseCase<R> {
-    pub fn new(repo: R) -> Self {
-        Self { repo }
+impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
+    pub fn new(thread_repo: T, repo: R) -> Self {
+        Self { thread_repo, repo }
     }
 
     /// Ingest a Claude Code hook event from stdin JSON.
@@ -43,41 +44,38 @@ impl<R: MessageRepository> HookUseCase<R> {
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown");
 
-        let (role, content, sender) = match event_name {
+        let (role, content, sender, source) = match event_name {
             "UserPromptSubmit" => {
                 let prompt = parsed
                     .get("prompt")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                (Role::User, prompt, None)
+                (Role::User, prompt, None, "user")
             }
             "PostToolUse" => {
                 let tool_name = parsed
                     .get("tool_name")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown_tool");
-                let tool_input = parsed
-                    .get("tool_input")
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                let tool_response = parsed
-                    .get("tool_response")
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                let content = format!(
-                    "[{}] input: {} | response: {}",
-                    tool_name, tool_input, tool_response
-                );
-                (Role::Tool, content, Some(tool_name.to_string()))
+                    .unwrap_or("");
+
+                if tool_name == "AskUserQuestion" {
+                    match Self::parse_ask_user_question(&parsed) {
+                        Some(content) => (Role::User, content, None, "user"),
+                        None => return Ok(0),
+                    }
+                } else {
+                    // Other tool events are skipped to avoid storing large outputs
+                    return Ok(0);
+                }
             }
             "Stop" => {
                 let content = "[session stop]".to_string();
-                (Role::Assistant, content, None)
+                (Role::Assistant, content, None, "system")
             }
             other => {
                 let content = format!("[{}] event received", other);
-                (Role::System, content, None)
+                (Role::System, content, None, "system")
             }
         };
 
@@ -86,6 +84,19 @@ impl<R: MessageRepository> HookUseCase<R> {
         }
 
         let now = Utc::now();
+
+        // Ensure the thread exists (INSERT OR IGNORE)
+        let short_id = &thread_id[..8.min(thread_id.len())];
+        let thread = Thread {
+            id: thread_id.clone(),
+            name: None,
+            title: format!("Session {}", short_id),
+            source_url: None,
+            created_at: now,
+            updated_at: now,
+        };
+        self.thread_repo.upsert(&thread)?;
+
         let message = Message {
             id: Uuid::new_v4().to_string(),
             thread_id,
@@ -95,10 +106,39 @@ impl<R: MessageRepository> HookUseCase<R> {
             content,
             metadata: None,
             parent_id: None,
+            source: Some(source.to_string()),
             created_at: now,
             updated_at: now,
         };
 
         self.repo.insert_batch(&[message])
+    }
+
+    /// Parse AskUserQuestion tool_response into "Q: ... / A: ..." format.
+    fn parse_ask_user_question(parsed: &serde_json::Value) -> Option<String> {
+        let response = parsed.get("tool_response")?;
+
+        // tool_response can be a JSON string or an object
+        let obj = if let Some(s) = response.as_str() {
+            serde_json::from_str::<serde_json::Value>(s).ok()?
+        } else {
+            response.clone()
+        };
+
+        let answers = obj.get("answers")?.as_object()?;
+        if answers.is_empty() {
+            return None;
+        }
+
+        let lines: Vec<String> = answers
+            .iter()
+            .map(|(q, a)| {
+                let fallback = a.to_string();
+                let answer = a.as_str().unwrap_or(&fallback);
+                format!("Q: {} / A: {}", q, answer)
+            })
+            .collect();
+
+        Some(format!("[決定] {}", lines.join(" | ")))
     }
 }

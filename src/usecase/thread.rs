@@ -36,9 +36,14 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
         self.thread_repo.list()
     }
 
+    pub fn resolve_id(&self, short_id: &str) -> Result<String, DomainError> {
+        self.thread_repo.resolve_short_id(short_id)
+    }
+
     pub fn delete(&self, id: &str) -> Result<(), DomainError> {
-        self.message_repo.delete_by_thread(id)?;
-        self.thread_repo.delete(id)
+        let full_id = self.thread_repo.resolve_short_id(id)?;
+        self.message_repo.delete_by_thread(&full_id)?;
+        self.thread_repo.delete(&full_id)
     }
 
     pub fn fetch(
@@ -71,6 +76,7 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
             content: markdown,
             metadata: None,
             parent_id: None,
+            source: Some("url-fetch".to_string()),
             created_at: now,
             updated_at: now,
         };

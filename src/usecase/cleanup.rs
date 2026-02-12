@@ -20,9 +20,10 @@ impl<T: ThreadRepository, M: MessageRepository> CleanupUseCase<T, M> {
         self.message_repo.delete_older_than(&cutoff)
     }
 
-    pub fn by_thread(&self, thread_id: &str) -> Result<usize, DomainError> {
-        let count = self.message_repo.delete_by_thread(thread_id)?;
-        self.thread_repo.delete(thread_id)?;
+    pub fn by_thread(&self, short_id: &str) -> Result<usize, DomainError> {
+        let full_id = self.thread_repo.resolve_short_id(short_id)?;
+        let count = self.message_repo.delete_by_thread(&full_id)?;
+        self.thread_repo.delete(&full_id)?;
         Ok(count)
     }
 

@@ -7,6 +7,7 @@ use crate::domain::error::DomainError;
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 
 const MIGRATION_V1: &str = include_str!("migrations/v001.sql");
+const MIGRATION_V2: &str = include_str!("migrations/v002.sql");
 
 
 pub struct Database {
@@ -79,6 +80,12 @@ impl Database {
                 .map_err(|e| DomainError::Database(format!("migration v1 failed: {}", e)))?;
         }
 
+        if version < 2 {
+            self.conn
+                .execute_batch(MIGRATION_V2)
+                .map_err(|e| DomainError::Database(format!("migration v2 failed: {}", e)))?;
+        }
+
         Ok(())
     }
 
@@ -131,6 +138,39 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
             )
             .map_err(|e| DomainError::Database(format!("failed to create thread: {}", e)))?;
         Ok(())
+    }
+
+    fn upsert(&self, thread: &Thread) -> Result<(), DomainError> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO threads (id, name, title, source_url, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    thread.id,
+                    thread.name,
+                    thread.title,
+                    thread.source_url,
+                    format_datetime(&thread.created_at),
+                    format_datetime(&thread.updated_at),
+                ],
+            )
+            .map_err(|e| DomainError::Database(format!("failed to upsert thread: {}", e)))?;
+        Ok(())
+    }
+
+    fn resolve_short_id(&self, short_id: &str) -> Result<String, DomainError> {
+        let pattern = format!("{}%", short_id);
+        let mut stmt = self.conn
+            .prepare("SELECT id FROM threads WHERE id LIKE ?1")?;
+
+        let ids: Vec<String> = stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        match ids.len() {
+            0 => Err(DomainError::ThreadNotFound(short_id.to_string())),
+            1 => Ok(ids.into_iter().next().unwrap()),
+            n => Err(DomainError::AmbiguousShortId(short_id.to_string(), n)),
+        }
     }
 
     fn find_by_id(&self, id: &str) -> Result<Option<Thread>, DomainError> {
@@ -214,8 +254,9 @@ impl<'a> SqliteMessageRepository<'a> {
             content: row.get(5)?,
             metadata,
             parent_id: row.get(7)?,
-            created_at: parse_datetime(&row.get::<_, String>(8)?)?,
-            updated_at: parse_datetime(&row.get::<_, String>(9)?)?,
+            source: row.get(8)?,
+            created_at: parse_datetime(&row.get::<_, String>(9)?)?,
+            updated_at: parse_datetime(&row.get::<_, String>(10)?)?,
         })
     }
 }
@@ -229,8 +270,8 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
 
         self.conn
             .execute(
-                "INSERT INTO messages (id, thread_id, session_id, sender, role, content, metadata, parent_id, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT INTO messages (id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     message.id,
                     message.thread_id,
@@ -240,6 +281,7 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
                     message.content,
                     metadata_json,
                     message.parent_id,
+                    message.source,
                     format_datetime(&message.created_at),
                     format_datetime(&message.updated_at),
                 ],
@@ -272,7 +314,7 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
     fn find_by_id(&self, id: &str) -> Result<Option<Message>, DomainError> {
         let mut stmt = self.conn
             .prepare(
-                "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, created_at, updated_at
+                "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
                  FROM messages WHERE id = ?1"
             )?;
 
@@ -304,12 +346,26 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
     fn find_by_thread(&self, thread_id: &str) -> Result<Vec<Message>, DomainError> {
         let mut stmt = self.conn
             .prepare(
-                "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, created_at, updated_at
+                "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
                  FROM messages WHERE thread_id = ?1 ORDER BY created_at ASC"
             )?;
 
         let messages = stmt
             .query_map(params![thread_id], Self::row_to_message)?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(messages)
+    }
+
+    fn list_recent(&self, limit: usize) -> Result<Vec<Message>, DomainError> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                 FROM messages ORDER BY created_at DESC LIMIT ?1"
+            )?;
+
+        let messages = stmt
+            .query_map(params![limit], Self::row_to_message)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(messages)
@@ -377,7 +433,7 @@ impl<'a> SqliteMessageRepository<'a> {
 
     fn search_fts(&self, query: &str, thread_id: Option<&str>) -> Result<Vec<Message>, DomainError> {
         self.query_messages(
-            "SELECT m.id, m.thread_id, m.session_id, m.sender, m.role, m.content, m.metadata, m.parent_id, m.created_at, m.updated_at
+            "SELECT m.id, m.thread_id, m.session_id, m.sender, m.role, m.content, m.metadata, m.parent_id, m.source, m.created_at, m.updated_at
              FROM messages m
              JOIN messages_fts fts ON m.rowid = fts.rowid
              WHERE messages_fts MATCH ?1",
@@ -391,7 +447,7 @@ impl<'a> SqliteMessageRepository<'a> {
         let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
         let pattern = format!("%{}%", escaped);
         self.query_messages(
-            "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, created_at, updated_at
+            "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
              FROM messages WHERE content LIKE ?1 ESCAPE '\\'",
             "AND thread_id = ?2",
             &pattern,

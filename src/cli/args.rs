@@ -76,6 +76,21 @@ pub enum MessageAction {
         /// この日時より後の message のみ（ISO 8601）
         #[arg(long)]
         after: Option<String>,
+        /// 内容を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
+        /// 出力形式（text, json）
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+    /// 最新の message を一覧表示する
+    List {
+        /// 返す message の最大件数
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        /// 内容を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
         /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
@@ -87,6 +102,9 @@ pub enum MessageAction {
         /// 特定の thread に検索を限定
         #[arg(long)]
         thread: Option<String>,
+        /// 内容を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
         /// 出力形式（text, json, markdown）
         #[arg(long, default_value = "text")]
         format: String,
@@ -110,6 +128,9 @@ pub enum ThreadAction {
     },
     /// 全 thread を一覧表示する
     List {
+        /// ID を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
         /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,

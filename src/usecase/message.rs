@@ -24,6 +24,7 @@ impl<R: MessageRepository> MessageUseCase<R> {
         parent_id: Option<&str>,
     ) -> Result<Message, DomainError> {
         let now = Utc::now();
+        let source = if sender.is_some() { "agent" } else { "manual" };
         let msg = Message {
             id: Uuid::new_v4().to_string(),
             thread_id: thread_id.to_string(),
@@ -33,6 +34,7 @@ impl<R: MessageRepository> MessageUseCase<R> {
             content: content.to_string(),
             metadata,
             parent_id: parent_id.map(|s| s.to_string()),
+            source: Some(source.to_string()),
             created_at: now,
             updated_at: now,
         };
@@ -42,6 +44,10 @@ impl<R: MessageRepository> MessageUseCase<R> {
 
     pub fn read(&self, thread_id: &str) -> Result<Vec<Message>, DomainError> {
         self.repo.find_by_thread(thread_id)
+    }
+
+    pub fn list_recent(&self, limit: usize) -> Result<Vec<Message>, DomainError> {
+        self.repo.list_recent(limit)
     }
 
     pub fn search(

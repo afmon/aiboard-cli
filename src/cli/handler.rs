@@ -51,7 +51,7 @@ fn parse_datetime_filter(s: &str) -> Option<DateTime<Utc>> {
 pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
     action: MessageAction,
     message_uc: &MessageUseCase<M>,
-    _thread_uc: &ThreadUseCase<T, M>,
+    thread_uc: &ThreadUseCase<T, M>,
 ) -> anyhow::Result<()> {
     match action {
         MessageAction::Post {
@@ -63,6 +63,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             parent,
             metadata,
         } => {
+            let full_thread_id = thread_uc.resolve_id(&thread)?;
             let body = match content {
                 Some(c) => c,
                 None => read_stdin()?,
@@ -83,7 +84,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             };
 
             let msg = message_uc.post(
-                &thread,
+                &full_thread_id,
                 role,
                 &body,
                 session.as_deref(),
@@ -99,9 +100,11 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             limit,
             before,
             after,
+            full,
             format,
         } => {
-            let mut messages = message_uc.read(&thread)?;
+            let full_thread_id = thread_uc.resolve_id(&thread)?;
+            let mut messages = message_uc.read(&full_thread_id)?;
 
             if let Some(dt) = after.as_deref().and_then(parse_datetime_filter) {
                 messages.retain(|m| m.created_at > dt);
@@ -117,19 +120,32 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
 
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
-                _ => println!("{}", formatter::format_messages_text(&messages)),
+                _ => println!("{}", formatter::format_messages_text(&messages, full)),
+            }
+        }
+
+        MessageAction::List { limit, full, format } => {
+            let messages = message_uc.list_recent(limit)?;
+            match format.as_str() {
+                "json" => println!("{}", formatter::format_messages_json(&messages)),
+                _ => println!("{}", formatter::format_messages_text(&messages, full)),
             }
         }
 
         MessageAction::Search {
             query,
             thread,
+            full,
             format,
         } => {
-            let messages = message_uc.search(&query, thread.as_deref())?;
+            let resolved_thread = thread
+                .as_deref()
+                .map(|t| thread_uc.resolve_id(t))
+                .transpose()?;
+            let messages = message_uc.search(&query, resolved_thread.as_deref())?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
-                _ => println!("{}", formatter::format_messages_text(&messages)),
+                _ => println!("{}", formatter::format_messages_search(&messages, &query, full)),
             }
         }
 
@@ -151,11 +167,11 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
             let thread = thread_uc.create(&title)?;
             println!("{}", thread.id);
         }
-        ThreadAction::List { format } => {
+        ThreadAction::List { full, format } => {
             let threads = thread_uc.list()?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_threads_json(&threads)),
-                _ => println!("{}", formatter::format_threads_text(&threads)),
+                _ => println!("{}", formatter::format_threads_text(&threads, full)),
             }
         }
         ThreadAction::Delete { id } => {
@@ -172,9 +188,9 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
     Ok(())
 }
 
-pub fn handle_hook<M: MessageRepository>(
+pub fn handle_hook<T: ThreadRepository, M: MessageRepository>(
     action: HookAction,
-    hook_uc: &HookUseCase<M>,
+    hook_uc: &HookUseCase<T, M>,
 ) -> anyhow::Result<()> {
     match action {
         HookAction::Ingest { thread } => {
