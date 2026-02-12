@@ -93,6 +93,10 @@ pub fn format_messages_search(messages: &[Message], query: &str, full: bool) -> 
         .join("\n")
 }
 
+pub fn any_content_truncated(messages: &[Message]) -> bool {
+    messages.iter().any(|m| m.content.chars().count() > TRUNCATE_LEN)
+}
+
 pub fn format_messages_json(messages: &[Message]) -> String {
     serde_json::to_string_pretty(messages).unwrap_or_else(|_| "[]".to_string())
 }

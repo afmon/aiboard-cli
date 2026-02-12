@@ -120,7 +120,12 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
 
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
-                _ => println!("{}", formatter::format_messages_text(&messages, full)),
+                _ => {
+                    println!("{}", formatter::format_messages_text(&messages, full));
+                    if !full && formatter::any_content_truncated(&messages) {
+                        eprintln!("(全文を表示するには --full を付けてください)");
+                    }
+                }
             }
         }
 
@@ -128,7 +133,12 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             let messages = message_uc.list_recent(limit)?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
-                _ => println!("{}", formatter::format_messages_text(&messages, full)),
+                _ => {
+                    println!("{}", formatter::format_messages_text(&messages, full));
+                    if !full && formatter::any_content_truncated(&messages) {
+                        eprintln!("(全文を表示するには --full を付けてください)");
+                    }
+                }
             }
         }
 
@@ -145,7 +155,12 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             let messages = message_uc.search(&query, resolved_thread.as_deref())?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
-                _ => println!("{}", formatter::format_messages_search(&messages, &query, full)),
+                _ => {
+                    println!("{}", formatter::format_messages_search(&messages, &query, full));
+                    if !full && formatter::any_content_truncated(&messages) {
+                        eprintln!("(全文を表示するには --full を付けてください)");
+                    }
+                }
             }
         }
 

@@ -123,7 +123,55 @@ fn read_response_body(response: ureq::Response) -> Result<String, DomainError> {
 }
 
 pub fn html_to_markdown(html: &str) -> String {
-    htmd::convert(html).unwrap_or_else(|_| html.to_string())
+    use htmd::element_handler::Handlers;
+
+    let converter = htmd::HtmlToMarkdown::builder()
+        .skip_tags(vec![
+            "script", "style", "nav", "header", "footer", "aside", "noscript",
+            "svg", "form", "button", "input", "select", "textarea", "iframe",
+            "object", "embed",
+        ])
+        .add_handler(vec!["a"], |handlers: &dyn Handlers, element: htmd::Element| {
+            let href = element.attrs.iter().find(|a| &a.name.local == "href");
+            if let Some(attr) = href {
+                if is_share_link(&attr.value) {
+                    return None;
+                }
+            }
+            handlers.fallback(element)
+        })
+        .add_handler(vec!["img"], |handlers: &dyn Handlers, element: htmd::Element| {
+            let src = element.attrs.iter().find(|a| &a.name.local == "src");
+            if let Some(attr) = src {
+                if is_avatar_image(&attr.value) {
+                    return None;
+                }
+            }
+            handlers.fallback(element)
+        })
+        .build();
+    converter.convert(html).unwrap_or_else(|_| html.to_string())
+}
+
+fn is_share_link(href: &str) -> bool {
+    const PATTERNS: &[&str] = &[
+        "twitter.com/intent",
+        "twitter.com/share",
+        "x.com/intent",
+        "facebook.com/sharer",
+        "linkedin.com/sharing",
+        "linkedin.com/shareArticle",
+        "b.hatena.ne.jp",
+        "getpocket.com",
+        "line.me/R/msg",
+        "pinterest.com/pin",
+    ];
+    PATTERNS.iter().any(|p| href.contains(p))
+}
+
+fn is_avatar_image(src: &str) -> bool {
+    let lower = src.to_lowercase();
+    lower.contains("avatar") || lower.contains("gravatar") || lower.contains("profile_image")
 }
 
 fn validate_host(parsed: &url::Url) -> Result<(), DomainError> {
