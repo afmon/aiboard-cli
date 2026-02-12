@@ -19,25 +19,25 @@ fn read_stdin() -> anyhow::Result<String> {
     let bytes_read = std::io::stdin()
         .take(MAX_CONTENT_SIZE as u64 + 1)
         .read_to_end(&mut buf)
-        .context("failed to read from stdin")?;
+        .context("stdin からの読み取りに失敗しました")?;
 
     if bytes_read > MAX_CONTENT_SIZE {
-        bail!("input exceeds 1MB limit ({} bytes)", bytes_read);
+        bail!("入力が 1MB の上限を超えています（{} バイト）", bytes_read);
     }
 
     if buf.iter().any(|&b| b == 0) {
-        bail!("input contains NUL bytes");
+        bail!("入力に NUL バイトが含まれています");
     }
 
-    String::from_utf8(buf).context("input is not valid UTF-8")
+    String::from_utf8(buf).context("入力が有効な UTF-8 ではありません")
 }
 
 fn validate_content(content: &str) -> anyhow::Result<()> {
     if content.len() > MAX_CONTENT_SIZE {
-        bail!("content exceeds 1MB limit ({} bytes)", content.len());
+        bail!("内容が 1MB の上限を超えています（{} バイト）", content.len());
     }
     if content.bytes().any(|b| b == 0) {
-        bail!("content contains NUL bytes");
+        bail!("内容に NUL バイトが含まれています");
     }
     Ok(())
 }
@@ -76,7 +76,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             let metadata_val: Option<serde_json::Value> = match metadata {
                 Some(m) => {
                     let val: serde_json::Value = serde_json::from_str(&m)
-                        .context("--metadata must be valid JSON")?;
+                        .context("--metadata は有効な JSON である必要があります")?;
                     Some(val)
                 }
                 None => None,
@@ -160,13 +160,13 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
         }
         ThreadAction::Delete { id } => {
             thread_uc.delete(&id)?;
-            eprintln!("deleted thread {}", id);
+            eprintln!("thread {} を削除しました", id);
         }
         ThreadAction::Fetch { url, title, sender } => {
-            eprintln!("fetching {}...", url);
+            eprintln!("{} を取得中...", url);
             let thread = thread_uc.fetch(&url, title.as_deref(), sender.as_deref())?;
             println!("{}", thread.id);
-            eprintln!("fetched and stored as thread {}", &thread.id[..8.min(thread.id.len())]);
+            eprintln!("取得して thread {} として保存しました", &thread.id[..8.min(thread.id.len())]);
         }
     }
     Ok(())
@@ -180,7 +180,7 @@ pub fn handle_hook<M: MessageRepository>(
         HookAction::Ingest { thread } => {
             let input = read_stdin()?;
             let count = hook_uc.ingest(thread.as_deref(), &input)?;
-            eprintln!("ingested {} messages", count);
+            eprintln!("{} 件の message を取り込みました", count);
         }
     }
     Ok(())
@@ -193,15 +193,15 @@ pub fn handle_cleanup<T: ThreadRepository, M: MessageRepository>(
     match action {
         CleanupAction::Age { days } => {
             let count = cleanup_uc.by_age(days)?;
-            eprintln!("deleted {} messages older than {} days", count, days);
+            eprintln!("{} 日より古い {} 件の message を削除しました", days, count);
         }
         CleanupAction::Thread { id } => {
             let count = cleanup_uc.by_thread(&id)?;
-            eprintln!("deleted thread {} and {} messages", id, count);
+            eprintln!("thread {} と {} 件の message を削除しました", id, count);
         }
         CleanupAction::Session { id } => {
             let count = cleanup_uc.by_session(&id)?;
-            eprintln!("deleted {} messages from session {}", count, id);
+            eprintln!("session {} の {} 件の message を削除しました", id, count);
         }
     }
     Ok(())
@@ -216,29 +216,29 @@ pub fn handle_setup(action: SetupAction) -> anyhow::Result<()> {
                 let settings_path = std::path::Path::new(".claude").join("settings.json");
 
                 eprint!(
-                    "This will write hook configuration to {}. Continue? [y/N] ",
+                    "hook 設定を {} に書き込みます。続行しますか？ [y/N] ",
                     settings_path.display()
                 );
 
                 let mut input = String::new();
                 std::io::stdin()
                     .read_line(&mut input)
-                    .context("failed to read confirmation")?;
+                    .context("確認入力の読み取りに失敗しました")?;
 
                 if !input.trim().eq_ignore_ascii_case("y") {
-                    eprintln!("aborted");
+                    eprintln!("中止しました");
                     return Ok(());
                 }
 
                 if let Some(parent) = settings_path.parent() {
                     std::fs::create_dir_all(parent)
-                        .context("failed to create .claude directory")?;
+                        .context(".claude ディレクトリの作成に失敗しました")?;
                 }
 
                 // Merge into existing settings if present
                 let mut settings = if settings_path.exists() {
                     let existing = std::fs::read_to_string(&settings_path)
-                        .context("failed to read existing settings")?;
+                        .context("既存の設定ファイルの読み取りに失敗しました")?;
                     serde_json::from_str::<serde_json::Value>(&existing)
                         .unwrap_or_else(|_| serde_json::json!({}))
                 } else {
@@ -254,9 +254,9 @@ pub fn handle_setup(action: SetupAction) -> anyhow::Result<()> {
 
                 let merged = serde_json::to_string_pretty(&settings)?;
                 std::fs::write(&settings_path, &merged)
-                    .context("failed to write settings file")?;
+                    .context("設定ファイルの書き込みに失敗しました")?;
 
-                eprintln!("wrote hook configuration to {}", settings_path.display());
+                eprintln!("hook 設定を {} に書き込みました", settings_path.display());
             } else {
                 println!("{}", json_str);
             }
@@ -272,26 +272,26 @@ pub fn handle_setup(action: SetupAction) -> anyhow::Result<()> {
                 let skill_path = skill_dir.join("SKILL.md");
 
                 eprint!(
-                    "This will write skill file to {}. Continue? [y/N] ",
+                    "skill ファイルを {} に書き込みます。続行しますか？ [y/N] ",
                     skill_path.display()
                 );
 
                 let mut input = String::new();
                 std::io::stdin()
                     .read_line(&mut input)
-                    .context("failed to read confirmation")?;
+                    .context("確認入力の読み取りに失敗しました")?;
 
                 if !input.trim().eq_ignore_ascii_case("y") {
-                    eprintln!("aborted");
+                    eprintln!("中止しました");
                     return Ok(());
                 }
 
                 std::fs::create_dir_all(&skill_dir)
-                    .context("failed to create skills directory")?;
+                    .context("skills ディレクトリの作成に失敗しました")?;
                 std::fs::write(&skill_path, &content)
-                    .context("failed to write skill file")?;
+                    .context("skill ファイルの書き込みに失敗しました")?;
 
-                eprintln!("wrote skill file to {}", skill_path.display());
+                eprintln!("skill ファイルを {} に書き込みました", skill_path.display());
             } else {
                 println!("{}", content);
             }

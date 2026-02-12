@@ -26,7 +26,7 @@ fn main() {
         Err(e) => {
             let (exit_code, user_msg) = classify_error(&e);
             logger::log_error(&format!("{:#}", e));
-            eprintln!("error: {}", user_msg);
+            eprintln!("エラー: {}", user_msg);
             std::process::exit(exit_code);
         }
     }

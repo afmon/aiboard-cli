@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "aiboard", about = "Inter-agent communication and conversation log persistence")]
+#[command(name = "aiboard", about = "エージェント間通信と会話ログの永続化")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -9,27 +9,27 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Manage messages (post, read, search, update)
+    /// message の管理（投稿・読み取り・検索・更新）
     Message {
         #[command(subcommand)]
         action: MessageAction,
     },
-    /// Manage threads (create, list, delete, fetch)
+    /// thread の管理（作成・一覧・削除・取得）
     Thread {
         #[command(subcommand)]
         action: ThreadAction,
     },
-    /// Ingest conversation logs from hooks
+    /// hook イベントから会話ログを取り込む
     Hook {
         #[command(subcommand)]
         action: HookAction,
     },
-    /// Clean up old data
+    /// 古いデータのクリーンアップ
     Cleanup {
         #[command(subcommand)]
         action: CleanupAction,
     },
-    /// Configure hooks and skills
+    /// hook と skill の設定
     Setup {
         #[command(subcommand)]
         action: SetupAction,
@@ -38,64 +38,64 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum MessageAction {
-    /// Post a new message to a thread
+    /// thread に新しい message を投稿する
     Post {
-        /// Thread ID
+        /// thread ID
         #[arg(long)]
         thread: String,
-        /// Message role (user, assistant, system, tool)
+        /// message の role（user, assistant, system, tool）
         #[arg(long, default_value = "user")]
         role: String,
-        /// Message content (reads from stdin if omitted)
+        /// message の内容（省略時は stdin から読み取り）
         #[arg(long)]
         content: Option<String>,
-        /// Session ID
+        /// session ID
         #[arg(long)]
         session: Option<String>,
-        /// Sender name
+        /// 送信者名
         #[arg(long)]
         sender: Option<String>,
-        /// Parent message ID
+        /// 親 message の ID
         #[arg(long)]
         parent: Option<String>,
-        /// Metadata as JSON string
+        /// JSON 文字列形式のメタデータ
         #[arg(long)]
         metadata: Option<String>,
     },
-    /// Read messages from a thread
+    /// thread の message を読み取る
     Read {
-        /// Thread ID
+        /// thread ID
         #[arg(long)]
         thread: String,
-        /// Maximum number of messages to return
+        /// 返す message の最大件数
         #[arg(long)]
         limit: Option<usize>,
-        /// Only messages before this datetime (ISO 8601)
+        /// この日時より前の message のみ（ISO 8601）
         #[arg(long)]
         before: Option<String>,
-        /// Only messages after this datetime (ISO 8601)
+        /// この日時より後の message のみ（ISO 8601）
         #[arg(long)]
         after: Option<String>,
-        /// Output format (text, json)
+        /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
     },
-    /// Search messages
+    /// message を検索する
     Search {
-        /// Search query
+        /// 検索クエリ
         query: String,
-        /// Limit search to a specific thread
+        /// 特定の thread に検索を限定
         #[arg(long)]
         thread: Option<String>,
-        /// Output format (text, json, markdown)
+        /// 出力形式（text, json, markdown）
         #[arg(long, default_value = "text")]
         format: String,
     },
-    /// Update a message's content
+    /// message の内容を更新する
     Update {
-        /// Message ID (short prefix allowed)
+        /// message ID（短い prefix でも可）
         id: String,
-        /// New content
+        /// 新しい内容
         #[arg(long)]
         content: String,
     },
@@ -103,30 +103,30 @@ pub enum MessageAction {
 
 #[derive(Subcommand)]
 pub enum ThreadAction {
-    /// Create a new thread
+    /// 新しい thread を作成する
     Create {
-        /// Thread title
+        /// thread のタイトル
         title: String,
     },
-    /// List all threads
+    /// 全 thread を一覧表示する
     List {
-        /// Output format (text, json)
+        /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
     },
-    /// Delete a thread and its messages
+    /// thread とその message を削除する
     Delete {
-        /// Thread ID
+        /// thread ID
         id: String,
     },
-    /// Fetch a conversation from a URL and store it
+    /// URL から会話を取得して保存する
     Fetch {
-        /// Source URL
+        /// 取得元 URL
         url: String,
-        /// Thread title (defaults to URL)
+        /// thread のタイトル（省略時は URL を使用）
         #[arg(long)]
         title: Option<String>,
-        /// Sender name for the fetched content
+        /// 取得コンテンツの送信者名
         #[arg(long)]
         sender: Option<String>,
     },
@@ -134,9 +134,9 @@ pub enum ThreadAction {
 
 #[derive(Subcommand)]
 pub enum HookAction {
-    /// Ingest a Claude Code hook event from stdin
+    /// stdin から Claude Code hook イベントを取り込む
     Ingest {
-        /// Thread ID override (defaults to session_id from stdin JSON)
+        /// thread ID の上書き（省略時は stdin JSON の session_id を使用）
         #[arg(long)]
         thread: Option<String>,
     },
@@ -144,34 +144,34 @@ pub enum HookAction {
 
 #[derive(Subcommand)]
 pub enum CleanupAction {
-    /// Delete messages older than N days
+    /// N 日より古い message を削除する
     Age {
-        /// Number of days
+        /// 日数
         days: i64,
     },
-    /// Delete a thread and all its messages
+    /// thread とその全 message を削除する
     Thread {
-        /// Thread ID
+        /// thread ID
         id: String,
     },
-    /// Delete all messages from a session
+    /// session の全 message を削除する
     Session {
-        /// Session ID
+        /// session ID
         id: String,
     },
 }
 
 #[derive(Subcommand)]
 pub enum SetupAction {
-    /// Generate hook configuration for Claude Code
+    /// Claude Code 用の hook 設定を生成する
     Hooks {
-        /// Apply the generated configuration to .claude/settings.json
+        /// 生成した設定を .claude/settings.json に適用する
         #[arg(long)]
         apply: bool,
     },
-    /// Generate aiboard skill file for Claude Code
+    /// Claude Code 用の aiboard skill ファイルを生成する
     Skill {
-        /// Apply the generated skill to .claude/skills/
+        /// 生成した skill を .claude/skills/ に適用する
         #[arg(long)]
         apply: bool,
     },

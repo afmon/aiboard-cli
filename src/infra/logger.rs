@@ -17,7 +17,7 @@ pub fn data_dir() -> Result<PathBuf, std::io::Error> {
 /// Logs an error message to ~/.aiboard/error.log with a timestamp.
 pub fn log_error(message: &str) {
     if let Err(e) = try_log_error(message) {
-        eprintln!("warning: failed to write to error.log: {}", e);
+        eprintln!("警告: error.log への書き込みに失敗しました: {}", e);
     }
 }
 

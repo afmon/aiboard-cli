@@ -2,28 +2,28 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DomainError {
-    #[error("thread not found: {0}")]
+    #[error("thread が見つかりません: {0}")]
     ThreadNotFound(String),
 
-    #[error("message not found: {0}")]
+    #[error("message が見つかりません: {0}")]
     MessageNotFound(String),
 
-    #[error("ambiguous short id '{0}': matched {1} records")]
+    #[error("短縮 ID '{0}' が曖昧です: {1} 件のレコードに一致")]
     AmbiguousShortId(String, usize),
 
-    #[error("database error: {0}")]
+    #[error("データベースエラー: {0}")]
     Database(String),
 
-    #[error("invalid input: {0}")]
+    #[error("入力が不正です: {0}")]
     InvalidInput(String),
 
-    #[error("network error: {0}")]
+    #[error("ネットワークエラー: {0}")]
     Network(String),
 
-    #[error("parse error: {0}")]
+    #[error("パースエラー: {0}")]
     Parse(String),
 
-    #[error("I/O error: {0}")]
+    #[error("I/O エラー: {0}")]
     Io(String),
 }
 

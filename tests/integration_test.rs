@@ -40,7 +40,7 @@ fn help_prints_usage() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Inter-agent communication"));
+        .stdout(predicate::str::contains("エージェント間通信"));
 }
 
 #[test]
