@@ -78,7 +78,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             handler::handle_hook(action, &hook_uc)?;
         }
         Commands::Cleanup { action } => {
-            handler::handle_cleanup(action, &cleanup_uc)?;
+            handler::handle_cleanup(action, &cleanup_uc, &path)?;
         }
         Commands::Setup { action } => {
             handler::handle_setup(action)?;

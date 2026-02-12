@@ -148,16 +148,25 @@ pub enum CleanupAction {
     Age {
         /// 日数
         days: i64,
+        /// DB バックアップをスキップする
+        #[arg(long)]
+        no_backup: bool,
     },
     /// thread とその全 message を削除する
     Thread {
         /// thread ID
         id: String,
+        /// DB バックアップをスキップする
+        #[arg(long)]
+        no_backup: bool,
     },
     /// session の全 message を削除する
     Session {
         /// session ID
         id: String,
+        /// DB バックアップをスキップする
+        #[arg(long)]
+        no_backup: bool,
     },
 }
 

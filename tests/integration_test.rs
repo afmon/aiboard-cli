@@ -1101,3 +1101,164 @@ fn message_post_all_roles() {
     let arr = parsed.as_array().unwrap();
     assert_eq!(arr.len(), 4);
 }
+
+// --- Cleanup backup tests ---
+
+/// Helper: list files matching a glob prefix in a directory.
+fn find_backup_files(dir: &str) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("aiboard.db.bak.") {
+                Some(entry.path())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn cleanup_age_creates_backup_by_default() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "backup-age-test");
+    post_message(&db_path, &thread_id, "backup test message");
+
+    // cleanup age without --no-backup should create a backup file
+    cmd()
+        .args(["cleanup", "age", "0"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("バックアップを作成しました"));
+
+    let backups = find_backup_files(&db_path);
+    assert!(!backups.is_empty(), "backup file should be created by default");
+}
+
+#[test]
+fn cleanup_thread_creates_backup_by_default() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "backup-thread-test");
+    post_message(&db_path, &thread_id, "backup thread message");
+
+    cmd()
+        .args(["cleanup", "thread", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("バックアップを作成しました"));
+
+    let backups = find_backup_files(&db_path);
+    assert!(!backups.is_empty(), "backup file should be created by default");
+}
+
+#[test]
+fn cleanup_session_creates_backup_by_default() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "backup-session-test");
+
+    cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "backup session message",
+            "--session", "sess-backup",
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    cmd()
+        .args(["cleanup", "session", "sess-backup"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("バックアップを作成しました"));
+
+    let backups = find_backup_files(&db_path);
+    assert!(!backups.is_empty(), "backup file should be created by default");
+}
+
+#[test]
+fn cleanup_age_no_backup_skips_backup() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "no-backup-age-test");
+    post_message(&db_path, &thread_id, "no backup message");
+
+    cmd()
+        .args(["cleanup", "age", "0", "--no-backup"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let backups = find_backup_files(&db_path);
+    assert!(backups.is_empty(), "no backup file should be created with --no-backup");
+}
+
+#[test]
+fn cleanup_thread_no_backup_skips_backup() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "no-backup-thread-test");
+    post_message(&db_path, &thread_id, "no backup thread message");
+
+    cmd()
+        .args(["cleanup", "thread", &thread_id, "--no-backup"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let backups = find_backup_files(&db_path);
+    assert!(backups.is_empty(), "no backup file should be created with --no-backup");
+}
+
+#[test]
+fn cleanup_session_no_backup_skips_backup() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "no-backup-session-test");
+
+    cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "no backup session message",
+            "--session", "sess-no-backup",
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    cmd()
+        .args(["cleanup", "session", "sess-no-backup", "--no-backup"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let backups = find_backup_files(&db_path);
+    assert!(backups.is_empty(), "no backup file should be created with --no-backup");
+}
+
+#[test]
+fn backup_file_naming_format() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "naming-format-test");
+    post_message(&db_path, &thread_id, "naming format message");
+
+    cmd()
+        .args(["cleanup", "age", "0"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let backups = find_backup_files(&db_path);
+    assert_eq!(backups.len(), 1, "exactly one backup file should be created");
+
+    let name = backups[0].file_name().unwrap().to_str().unwrap();
+    // Format: aiboard.db.bak.YYYYMMDDHHmmss (14 digits)
+    assert!(name.starts_with("aiboard.db.bak."), "backup name should start with 'aiboard.db.bak.'");
+    let timestamp_part = &name["aiboard.db.bak.".len()..];
+    assert_eq!(timestamp_part.len(), 14, "timestamp should be 14 digits (YYYYMMDDHHmmss)");
+    assert!(timestamp_part.chars().all(|c| c.is_ascii_digit()), "timestamp should be all digits");
+}

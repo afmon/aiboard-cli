@@ -189,17 +189,30 @@ pub fn handle_hook<M: MessageRepository>(
 pub fn handle_cleanup<T: ThreadRepository, M: MessageRepository>(
     action: CleanupAction,
     cleanup_uc: &CleanupUseCase<T, M>,
+    db_path: &std::path::Path,
 ) -> anyhow::Result<()> {
+    let no_backup = match &action {
+        CleanupAction::Age { no_backup, .. } => *no_backup,
+        CleanupAction::Thread { no_backup, .. } => *no_backup,
+        CleanupAction::Session { no_backup, .. } => *no_backup,
+    };
+
+    if !no_backup {
+        let backup_path = crate::infra::backup::create_backup(db_path)
+            .context("DB バックアップの作成に失敗しました")?;
+        eprintln!("バックアップを作成しました: {}", backup_path.display());
+    }
+
     match action {
-        CleanupAction::Age { days } => {
+        CleanupAction::Age { days, .. } => {
             let count = cleanup_uc.by_age(days)?;
             eprintln!("{} 日より古い {} 件の message を削除しました", days, count);
         }
-        CleanupAction::Thread { id } => {
+        CleanupAction::Thread { id, .. } => {
             let count = cleanup_uc.by_thread(&id)?;
             eprintln!("thread {} と {} 件の message を削除しました", id, count);
         }
-        CleanupAction::Session { id } => {
+        CleanupAction::Session { id, .. } => {
             let count = cleanup_uc.by_session(&id)?;
             eprintln!("session {} の {} 件の message を削除しました", id, count);
         }
