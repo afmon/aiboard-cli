@@ -1,4 +1,5 @@
 use crate::domain::entity::{Message, Thread};
+use chrono::Local;
 
 const TRUNCATE_LEN: usize = 100;
 const SNIPPET_CONTEXT: usize = 50;
@@ -43,9 +44,10 @@ fn format_message_with_content(msg: &Message, content: &str) -> String {
         Some(s) => format!(" [{}]", s),
         None => String::new(),
     };
+    let local_time = msg.created_at.with_timezone(&Local);
     format!(
         "[{}] {} ({}) {}{}: {}",
-        msg.created_at.format("%Y-%m-%d %H:%M:%S"),
+        local_time.format("%Y-%m-%d %H:%M:%S"),
         id_short,
         msg.role,
         sender,
@@ -102,12 +104,13 @@ pub fn format_thread_text(thread: &Thread, full: bool) -> String {
     } else {
         &thread.id[..8.min(thread.id.len())]
     };
+    let local_time = thread.updated_at.with_timezone(&Local);
     format!(
         "{}\t{}\t{}\t{}",
         id,
         name,
         thread.title,
-        thread.updated_at.format("%Y-%m-%d %H:%M:%S"),
+        local_time.format("%Y-%m-%d %H:%M:%S"),
     )
 }
 
