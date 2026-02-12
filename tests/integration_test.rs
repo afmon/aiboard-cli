@@ -319,24 +319,34 @@ fn hook_ingest() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().to_str().unwrap();
 
-    let output = cmd()
-        .args(["thread", "create", "hook-test"])
-        .env("AIBOARD_DATA_DIR", db_path)
-        .output()
-        .unwrap();
-    let thread_id = String::from_utf8(output.stdout).unwrap().trim().to_string();
+    let thread_id = create_thread(db_path, "hook-test");
 
+    // Ingest a UserPromptSubmit event
     let json = serde_json::json!({
         "session_id": "hook-session-1",
-        "messages": [
-            {"role": "user", "content": "hello from hook"},
-            {"role": "assistant", "content": "hook response"}
-        ]
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "hello from hook"
     });
 
     cmd()
         .args(["hook", "ingest", "--thread", &thread_id])
         .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", db_path)
+        .assert()
+        .success();
+
+    // Ingest a PostToolUse event
+    let json2 = serde_json::json!({
+        "session_id": "hook-session-1",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Read",
+        "tool_input": {"file_path": "/tmp/test.rs"},
+        "tool_response": "file contents here"
+    });
+
+    cmd()
+        .args(["hook", "ingest", "--thread", &thread_id])
+        .write_stdin(json2.to_string())
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success();
@@ -348,7 +358,7 @@ fn hook_ingest() {
         .assert()
         .success()
         .stdout(predicate::str::contains("hello from hook"))
-        .stdout(predicate::str::contains("hook response"));
+        .stdout(predicate::str::contains("Read"));
 }
 
 #[test]
@@ -566,12 +576,47 @@ fn message_post_with_valid_metadata() {
 
 #[test]
 fn setup_hooks_generates_json() {
-    cmd()
+    let output = cmd()
         .args(["setup", "hooks"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("PostToolUse"))
-        .stdout(predicate::str::contains("aiboard hook ingest"));
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("setup hooks should output valid JSON");
+
+    let hooks = parsed.get("hooks").expect("should have 'hooks' key");
+
+    // All three events must be present
+    for event in &["UserPromptSubmit", "PostToolUse", "Stop"] {
+        let event_arr = hooks.get(*event)
+            .unwrap_or_else(|| panic!("missing event: {}", event))
+            .as_array()
+            .unwrap_or_else(|| panic!("{} should be an array", event));
+        assert!(!event_arr.is_empty(), "{} should have at least one entry", event);
+
+        let entry = &event_arr[0];
+        assert!(entry.get("matcher").is_some(), "{} entry should have 'matcher'", event);
+
+        let inner_hooks = entry.get("hooks")
+            .unwrap_or_else(|| panic!("{} entry should have 'hooks' array", event))
+            .as_array()
+            .unwrap_or_else(|| panic!("{} 'hooks' should be an array", event));
+        assert!(!inner_hooks.is_empty());
+
+        let hook_def = &inner_hooks[0];
+        assert_eq!(hook_def.get("type").and_then(|v| v.as_str()), Some("command"),
+            "{} hook type should be 'command'", event);
+        assert_eq!(hook_def.get("async").and_then(|v| v.as_bool()), Some(true),
+            "{} hook should be async", event);
+
+        let command = hook_def.get("command").and_then(|v| v.as_str()).unwrap();
+        assert!(command.contains("aiboard hook ingest"),
+            "{} command should contain 'aiboard hook ingest'", event);
+        assert!(!command.contains("--thread"),
+            "{} command should not contain '--thread'", event);
+    }
 }
 
 #[test]
@@ -810,41 +855,181 @@ fn hook_ingest_invalid_json() {
 }
 
 #[test]
-fn hook_ingest_missing_messages_field() {
+fn hook_ingest_unknown_event() {
     let (_dir, db_path) = test_db();
-    let thread_id = create_thread(&db_path, "hook-no-messages");
+    let thread_id = create_thread(&db_path, "hook-unknown-event");
 
-    // Valid JSON but missing "messages" array
+    // Valid JSON with unknown hook_event_name - should succeed and store as system message
     let json = serde_json::json!({
         "session_id": "test-session",
-        "data": "no messages here"
+        "hook_event_name": "SomeNewEvent"
     });
 
-    cmd()
-        .args(["hook", "ingest", "--thread", &thread_id])
-        .write_stdin(json.to_string())
-        .env("AIBOARD_DATA_DIR", &db_path)
-        .assert()
-        .failure();
-}
-
-#[test]
-fn hook_ingest_empty_messages() {
-    let (_dir, db_path) = test_db();
-    let thread_id = create_thread(&db_path, "hook-empty-messages");
-
-    let json = serde_json::json!({
-        "session_id": "test-session",
-        "messages": []
-    });
-
-    // Empty messages array - should succeed but ingest 0
     cmd()
         .args(["hook", "ingest", "--thread", &thread_id])
         .write_stdin(json.to_string())
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
         .success();
+
+    // Verify the event was stored
+    cmd()
+        .args(["message", "read", "--thread", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("SomeNewEvent"));
+}
+
+#[test]
+fn hook_ingest_empty_prompt() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "hook-empty-prompt");
+
+    // UserPromptSubmit with empty prompt - should succeed but ingest 0
+    let json = serde_json::json!({
+        "session_id": "test-session",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": ""
+    });
+
+    cmd()
+        .args(["hook", "ingest", "--thread", &thread_id])
+        .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn hook_ingest_user_prompt_submit() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "hook-user-prompt");
+
+    let json = serde_json::json!({
+        "session_id": "sess-prompt",
+        "hook_event_name": "UserPromptSubmit",
+        "transcript_path": "/tmp/test",
+        "cwd": "/tmp",
+        "prompt": "please fix the bug"
+    });
+
+    cmd()
+        .args(["hook", "ingest", "--thread", &thread_id])
+        .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Verify role=user and content=prompt value
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["role"], "user");
+    assert_eq!(arr[0]["content"], "please fix the bug");
+}
+
+#[test]
+fn hook_ingest_post_tool_use() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "hook-post-tool");
+
+    let json = serde_json::json!({
+        "session_id": "sess-tool",
+        "hook_event_name": "PostToolUse",
+        "transcript_path": "/tmp/test",
+        "cwd": "/tmp",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls -la"},
+        "tool_use_id": "tool-123",
+        "tool_response": "total 42\ndrwxr-xr-x ..."
+    });
+
+    cmd()
+        .args(["hook", "ingest", "--thread", &thread_id])
+        .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Verify role=tool, content contains tool_name/input/response
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["role"], "tool");
+    let content = arr[0]["content"].as_str().unwrap();
+    assert!(content.contains("Bash"), "content should contain tool_name");
+    assert!(content.contains("ls -la"), "content should contain tool_input");
+    assert!(content.contains("total 42"), "content should contain tool_response");
+}
+
+#[test]
+fn hook_ingest_stop() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "hook-stop");
+
+    let json = serde_json::json!({
+        "session_id": "sess-stop",
+        "hook_event_name": "Stop",
+        "transcript_path": "/tmp/test",
+        "cwd": "/tmp"
+    });
+
+    cmd()
+        .args(["hook", "ingest", "--thread", &thread_id])
+        .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Verify role=assistant, content=[session stop]
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["role"], "assistant");
+    assert_eq!(arr[0]["content"], "[session stop]");
+}
+
+#[test]
+fn hook_ingest_no_session_no_thread() {
+    let (_dir, db_path) = test_db();
+
+    // No --thread and no session_id in JSON -> should fail
+    let json = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "orphan prompt"
+    });
+
+    cmd()
+        .args(["hook", "ingest"])
+        .write_stdin(json.to_string())
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
 }
 
 // --- Update error cases ---

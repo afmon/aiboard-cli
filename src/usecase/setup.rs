@@ -1,14 +1,38 @@
 use serde_json::json;
 
 /// Generates the Claude Code hooks configuration JSON for aiboard integration.
-/// This hooks into the PostToolUse event to capture conversation data.
+/// Hooks into UserPromptSubmit, PostToolUse, and Stop events.
 pub fn generate_hooks_json() -> serde_json::Value {
     json!({
         "hooks": {
+            "UserPromptSubmit": [
+                {
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "aiboard hook ingest",
+                        "async": true
+                    }]
+                }
+            ],
             "PostToolUse": [
                 {
                     "matcher": ".*",
-                    "command": "aiboard hook ingest --thread \"$THREAD_ID\""
+                    "hooks": [{
+                        "type": "command",
+                        "command": "aiboard hook ingest",
+                        "async": true
+                    }]
+                }
+            ],
+            "Stop": [
+                {
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "aiboard hook ingest",
+                        "async": true
+                    }]
                 }
             ]
         }

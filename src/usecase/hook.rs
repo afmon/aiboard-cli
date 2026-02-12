@@ -13,9 +13,14 @@ impl<R: MessageRepository> HookUseCase<R> {
         Self { repo }
     }
 
+    /// Ingest a Claude Code hook event from stdin JSON.
+    ///
+    /// The JSON contains common fields (session_id, hook_event_name, etc.)
+    /// plus event-specific fields. A thread_id override can be provided
+    /// via CLI; otherwise session_id is used as the thread_id.
     pub fn ingest(
         &self,
-        thread_id: &str,
+        thread_id_override: Option<&str>,
         json_input: &str,
     ) -> Result<usize, DomainError> {
         let parsed: serde_json::Value = serde_json::from_str(json_input)
@@ -26,45 +31,74 @@ impl<R: MessageRepository> HookUseCase<R> {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let messages_val = parsed
-            .get("messages")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| DomainError::Parse("missing 'messages' array".to_string()))?;
+        let thread_id = match thread_id_override {
+            Some(tid) => tid.to_string(),
+            None => session_id
+                .clone()
+                .ok_or_else(|| DomainError::Parse("no session_id and no --thread provided".to_string()))?,
+        };
 
-        let mut messages = Vec::new();
-        for entry in messages_val {
-            let role_str = entry
-                .get("role")
-                .and_then(|v| v.as_str())
-                .unwrap_or("user");
-            let role: Role = role_str
-                .parse()
-                .map_err(|e: String| DomainError::Parse(e))?;
-            let content = entry
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let sender = entry
-                .get("sender")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+        let event_name = parsed
+            .get("hook_event_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown");
 
-            let now = Utc::now();
-            messages.push(Message {
-                id: Uuid::new_v4().to_string(),
-                thread_id: thread_id.to_string(),
-                session_id: session_id.clone(),
-                sender,
-                role,
-                content,
-                metadata: None,
-                parent_id: None,
-                created_at: now,
-                updated_at: now,
-            });
+        let (role, content, sender) = match event_name {
+            "UserPromptSubmit" => {
+                let prompt = parsed
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                (Role::User, prompt, None)
+            }
+            "PostToolUse" => {
+                let tool_name = parsed
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown_tool");
+                let tool_input = parsed
+                    .get("tool_input")
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                let tool_response = parsed
+                    .get("tool_response")
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                let content = format!(
+                    "[{}] input: {} | response: {}",
+                    tool_name, tool_input, tool_response
+                );
+                (Role::Tool, content, Some(tool_name.to_string()))
+            }
+            "Stop" => {
+                let content = "[session stop]".to_string();
+                (Role::Assistant, content, None)
+            }
+            other => {
+                let content = format!("[{}] event received", other);
+                (Role::System, content, None)
+            }
+        };
+
+        if content.is_empty() {
+            return Ok(0);
         }
 
-        self.repo.insert_batch(&messages)
+        let now = Utc::now();
+        let message = Message {
+            id: Uuid::new_v4().to_string(),
+            thread_id,
+            session_id,
+            sender,
+            role,
+            content,
+            metadata: None,
+            parent_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.repo.insert_batch(&[message])
     }
 }

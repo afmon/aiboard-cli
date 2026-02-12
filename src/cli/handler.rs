@@ -179,7 +179,7 @@ pub fn handle_hook<M: MessageRepository>(
     match action {
         HookAction::Ingest { thread } => {
             let input = read_stdin()?;
-            let count = hook_uc.ingest(&thread, &input)?;
+            let count = hook_uc.ingest(thread.as_deref(), &input)?;
             eprintln!("ingested {} messages", count);
         }
     }

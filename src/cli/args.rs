@@ -134,11 +134,11 @@ pub enum ThreadAction {
 
 #[derive(Subcommand)]
 pub enum HookAction {
-    /// Ingest conversation JSON from stdin
+    /// Ingest a Claude Code hook event from stdin
     Ingest {
-        /// Thread ID to store messages in
+        /// Thread ID override (defaults to session_id from stdin JSON)
         #[arg(long)]
-        thread: String,
+        thread: Option<String>,
     },
 }
 
