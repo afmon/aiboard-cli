@@ -61,12 +61,15 @@ pub enum MessageAction {
         /// JSON 文字列形式のメタデータ
         #[arg(long)]
         metadata: Option<String>,
+        /// メッセージタイプ（metadata.msg_type に設定される）
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
     },
     /// thread の message を読み取る
     Read {
-        /// thread ID
+        /// thread ID（省略時は全 thread から最新 message を取得）
         #[arg(long)]
-        thread: String,
+        thread: Option<String>,
         /// 返す message の最大件数
         #[arg(long)]
         limit: Option<usize>,
@@ -85,6 +88,12 @@ pub enum MessageAction {
         /// メンション通知対象の送信者名
         #[arg(long)]
         sender: Option<String>,
+        /// メッセージタイプでフィルター
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
+        /// 最後の checkpoint 以降の message のみ表示
+        #[arg(long)]
+        since_checkpoint: bool,
     },
     /// 最新の message を一覧表示する
     List {
@@ -100,6 +109,9 @@ pub enum MessageAction {
         /// メンション通知対象の送信者名
         #[arg(long)]
         sender: Option<String>,
+        /// メッセージタイプでフィルター
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
     },
     /// message を検索する
     Search {
@@ -117,6 +129,9 @@ pub enum MessageAction {
         /// メンション通知対象の送信者名
         #[arg(long)]
         sender: Option<String>,
+        /// メッセージタイプでフィルター
+        #[arg(long, value_name = "TYPE")]
+        r#type: Option<String>,
     },
     /// 自分宛てのメンションを表示する
     Mentions {
@@ -173,6 +188,13 @@ pub enum ThreadAction {
     Reopen {
         /// thread ID
         id: String,
+    },
+    /// thread のフェーズを設定する
+    SetPhase {
+        /// thread ID
+        id: String,
+        /// フェーズ（planning, implementing, reviewing, done, none）
+        phase: String,
     },
     /// URL から会話を取得して保存する
     Fetch {

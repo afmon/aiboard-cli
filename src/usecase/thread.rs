@@ -1,4 +1,4 @@
-use crate::domain::entity::{Message, Role, Thread, ThreadStatus};
+use crate::domain::entity::{Message, Role, Thread, ThreadPhase, ThreadStatus};
 use crate::domain::error::DomainError;
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 use crate::infra::http;
@@ -26,6 +26,7 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
             title: title.to_string(),
             source_url: None,
             status: ThreadStatus::default(),
+            phase: None,
             created_at: now,
             updated_at: now,
         };
@@ -59,6 +60,11 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
         self.thread_repo.update_status(&full_id, ThreadStatus::Open)
     }
 
+    pub fn set_phase(&self, id: &str, phase: Option<ThreadPhase>) -> Result<(), DomainError> {
+        let full_id = self.thread_repo.resolve_short_id(id)?;
+        self.thread_repo.update_phase(&full_id, phase)
+    }
+
     pub fn delete(&self, id: &str) -> Result<(), DomainError> {
         let full_id = self.thread_repo.resolve_short_id(id)?;
         self.message_repo.delete_by_thread(&full_id)?;
@@ -82,6 +88,7 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
             title: thread_title.to_string(),
             source_url: Some(url.to_string()),
             status: ThreadStatus::default(),
+            phase: None,
             created_at: now,
             updated_at: now,
         };

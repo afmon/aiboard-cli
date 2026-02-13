@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::cli::args::*;
 use crate::cli::formatter;
-use crate::domain::entity::{Role, ThreadStatus};
+use crate::domain::entity::{Role, ThreadPhase, ThreadStatus};
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 use crate::usecase::cleanup::CleanupUseCase;
 use crate::usecase::hook::HookUseCase;
@@ -62,6 +62,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             sender,
             parent,
             metadata,
+            r#type,
         } => {
             let full_thread_id = thread_uc.resolve_id(&thread)?;
 
@@ -82,7 +83,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 .parse()
                 .map_err(|e: String| anyhow::anyhow!(e))?;
 
-            let metadata_val: Option<serde_json::Value> = match metadata {
+            let mut metadata_val: Option<serde_json::Value> = match metadata {
                 Some(m) => {
                     let val: serde_json::Value = serde_json::from_str(&m)
                         .context("--metadata は有効な JSON である必要があります")?;
@@ -90,6 +91,25 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 }
                 None => None,
             };
+
+            // --type の処理: metadata.msg_type に設定
+            if let Some(ref msg_type) = r#type {
+                match &mut metadata_val {
+                    Some(val) => {
+                        if let Some(obj) = val.as_object_mut() {
+                            if obj.contains_key("msg_type") {
+                                bail!("--metadata に msg_type が既に含まれています。--type と --metadata の msg_type を同時に指定できません");
+                            }
+                            obj.insert("msg_type".to_string(), serde_json::Value::String(msg_type.clone()));
+                        } else {
+                            bail!("--metadata はオブジェクト形式の JSON である必要があります");
+                        }
+                    }
+                    None => {
+                        metadata_val = Some(serde_json::json!({"msg_type": msg_type}));
+                    }
+                }
+            }
 
             let msg = message_uc.post(
                 &full_thread_id,
@@ -111,9 +131,34 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             full,
             format,
             sender,
+            r#type,
+            since_checkpoint,
         } => {
-            let full_thread_id = thread_uc.resolve_id(&thread)?;
-            let mut messages = message_uc.read(&full_thread_id)?;
+            let mut messages = if since_checkpoint {
+                let thread_id = thread.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--since-checkpoint には --thread が必要です"))?;
+                let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                message_uc.find_since_last_type(&full_thread_id, "checkpoint")?
+            } else if let Some(ref msg_type) = r#type {
+                match thread.as_deref() {
+                    Some(thread_id) => {
+                        let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                        message_uc.find_by_type(Some(&full_thread_id), msg_type)?
+                    }
+                    None => message_uc.find_by_type(None, msg_type)?,
+                }
+            } else {
+                match thread.as_deref() {
+                    Some(thread_id) => {
+                        let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                        message_uc.read(&full_thread_id)?
+                    }
+                    None => {
+                        let recent_limit = limit.unwrap_or(20);
+                        message_uc.list_recent(recent_limit)?
+                    }
+                }
+            };
 
             if let Some(dt) = after.as_deref().and_then(parse_datetime_filter) {
                 messages.retain(|m| m.created_at > dt);
@@ -123,8 +168,10 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 messages.retain(|m| m.created_at < dt);
             }
 
-            if let Some(lim) = limit {
-                messages.truncate(lim);
+            if thread.is_some() {
+                if let Some(lim) = limit {
+                    messages.truncate(lim);
+                }
             }
 
             match format.as_str() {
@@ -145,8 +192,12 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             }
         }
 
-        MessageAction::List { limit, full, format, sender } => {
-            let messages = message_uc.list_recent(limit)?;
+        MessageAction::List { limit, full, format, sender, r#type } => {
+            let messages = if let Some(ref msg_type) = r#type {
+                message_uc.find_by_type(None, msg_type)?
+            } else {
+                message_uc.list_recent(limit)?
+            };
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
                 _ => {
@@ -171,12 +222,24 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             full,
             format,
             sender,
+            r#type,
         } => {
             let resolved_thread = thread
                 .as_deref()
                 .map(|t| thread_uc.resolve_id(t))
                 .transpose()?;
-            let messages = message_uc.search(&query, resolved_thread.as_deref())?;
+            let mut messages = message_uc.search(&query, resolved_thread.as_deref())?;
+
+            // --type フィルター適用
+            if let Some(ref msg_type) = r#type {
+                messages.retain(|m| {
+                    m.metadata.as_ref()
+                        .and_then(|meta| meta.get("msg_type"))
+                        .and_then(|v| v.as_str())
+                        .map(|t| t == msg_type)
+                        .unwrap_or(false)
+                });
+            }
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
                 _ => {
@@ -249,6 +312,21 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
         ThreadAction::Reopen { id } => {
             thread_uc.reopen(&id)?;
             eprintln!("thread {} を再オープンしました", id);
+        }
+        ThreadAction::SetPhase { id, phase } => {
+            let phase_value = if phase == "none" {
+                None
+            } else {
+                let parsed: ThreadPhase = phase
+                    .parse()
+                    .map_err(|e: String| anyhow::anyhow!(e))?;
+                Some(parsed)
+            };
+            thread_uc.set_phase(&id, phase_value)?;
+            match phase_value {
+                Some(p) => eprintln!("thread {} のフェーズを {} に設定しました", id, p),
+                None => eprintln!("thread {} のフェーズを解除しました", id),
+            }
         }
         ThreadAction::Fetch { url, title, sender } => {
             eprintln!("{} を取得中...", url);

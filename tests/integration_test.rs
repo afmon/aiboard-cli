@@ -681,7 +681,62 @@ fn search_with_sql_wildcards() {
         .stdout(predicate::str::contains("file_name.txt"));
 }
 
+#[test]
+fn search_falls_back_to_like_when_fts_returns_empty() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "like-fallback-test");
+
+    post_message(&db_path, &thread_id, "abcdefg");
+
+    // "bc" is shorter than trigram size, so FTS may return no rows.
+    // Verify we still find it via LIKE fallback.
+    cmd()
+        .args(["message", "search", "bc", "--thread", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("abcdefg"));
+}
+
 // --- CLI filter tests ---
+
+#[test]
+fn message_read_without_thread_reads_recent_messages() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "read-recent-default");
+
+    post_message(&db_path, &thread_id, "global recent message");
+
+    cmd()
+        .args(["message", "read"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("global recent message"));
+}
+
+#[test]
+fn message_read_without_thread_with_limit() {
+    let (_dir, db_path) = test_db();
+    let thread_a = create_thread(&db_path, "read-recent-limit-a");
+    let thread_b = create_thread(&db_path, "read-recent-limit-b");
+
+    post_message(&db_path, &thread_a, "thread a first");
+    post_message(&db_path, &thread_b, "thread b first");
+    post_message(&db_path, &thread_a, "thread a second");
+
+    let output = cmd()
+        .args(["message", "read", "--limit", "2", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+}
 
 #[test]
 fn message_read_with_limit() {
@@ -981,9 +1036,10 @@ fn hook_ingest_stop() {
         .write_stdin(json.to_string())
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains("0 件"));
 
-    // Verify role=assistant, content=[session stop]
+    // Stop events should not be persisted.
     let output = cmd()
         .args(["message", "read", "--thread", &thread_id, "--format", "json"])
         .env("AIBOARD_DATA_DIR", &db_path)
@@ -994,9 +1050,7 @@ fn hook_ingest_stop() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let arr = parsed.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["role"], "assistant");
-    assert_eq!(arr[0]["content"], "[session stop]");
+    assert_eq!(arr.len(), 0);
 }
 
 #[test]
@@ -1551,4 +1605,377 @@ fn close_nonexistent_thread() {
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
         .failure();
+}
+
+// --- Thread phase tests ---
+
+#[test]
+fn thread_set_phase() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-test");
+
+    // Set phase to planning
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "planning"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを planning に設定しました"));
+
+    // Verify via JSON list
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr[0]["phase"], "planning");
+
+    // Change to implementing
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "implementing"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを implementing に設定しました"));
+
+    // Verify
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr[0]["phase"], "implementing");
+}
+
+#[test]
+fn thread_set_phase_none() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-none-test");
+
+    // Set phase to reviewing
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "reviewing"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Clear phase with "none"
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "none"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを解除しました"));
+
+    // Verify phase is null in JSON
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert!(arr[0]["phase"].is_null(), "phase should be null after setting to none");
+}
+
+#[test]
+fn thread_set_phase_invalid() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-invalid-test");
+
+    // Set invalid phase - should fail
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "invalid-phase"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn thread_list_shows_phase() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-list-test");
+
+    // Before setting phase, list should show "-" for phase
+    let output = cmd()
+        .args(["thread", "list"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("-\t"), "should show '-' for no phase");
+
+    // Set phase to done
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "done"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // List should now show "done"
+    let output = cmd()
+        .args(["thread", "list"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("done"), "should show 'done' phase in list output");
+}
+
+#[test]
+fn thread_help_shows_set_phase() {
+    cmd()
+        .args(["thread", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("set-phase"));
+}
+
+// --- Message type tests ---
+
+#[test]
+fn message_post_with_type() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "type-test");
+
+    cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "we decided on JWT",
+            "--sender", "test-agent",
+            "--type", "decision",
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["metadata"]["msg_type"], "decision");
+}
+
+#[test]
+fn message_post_type_with_metadata() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "type-meta-test");
+
+    cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "implement auth",
+            "--sender", "test-agent",
+            "--type", "task",
+            "--metadata", r#"{"priority":"high"}"#,
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr[0]["metadata"]["msg_type"], "task");
+    assert_eq!(arr[0]["metadata"]["priority"], "high");
+}
+
+#[test]
+fn message_post_type_metadata_conflict() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "type-conflict-test");
+
+    cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "conflict",
+            "--sender", "test-agent",
+            "--type", "decision",
+            "--metadata", r#"{"msg_type":"task"}"#,
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn message_read_type_filter() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "read-type-filter-test");
+
+    // Post messages with different types
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "decision msg", "--sender", "a", "--type", "decision"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "task msg", "--sender", "a", "--type", "task"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "no type msg", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    // Read with --type decision
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--type", "decision", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["metadata"]["msg_type"], "decision");
+    assert!(arr[0]["content"].as_str().unwrap().contains("decision msg"));
+}
+
+#[test]
+fn message_list_type_filter() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "list-type-filter-test");
+
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "open issue", "--sender", "a", "--type", "open"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "a decision", "--sender", "a", "--type", "decision"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "plain msg", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    let output = cmd()
+        .args(["message", "list", "--type", "open", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["metadata"]["msg_type"], "open");
+}
+
+#[test]
+fn message_search_type_filter() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "search-type-filter-test");
+
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "auth decision here", "--sender", "a", "--type", "decision"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "auth task here", "--sender", "a", "--type", "task"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    // Search for "auth" filtered by --type decision
+    let output = cmd()
+        .args(["message", "search", "auth", "--type", "decision", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["content"].as_str().unwrap().contains("auth decision"));
+}
+
+#[test]
+fn message_read_since_checkpoint() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "since-checkpoint-test");
+
+    // Post before checkpoint
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "before checkpoint", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    // Sleep >1s to ensure distinct second-precision timestamps in SQLite
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    // Post checkpoint
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "checkpoint marker", "--sender", "a", "--type", "checkpoint"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    // Post after checkpoint
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "after checkpoint", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    // Read --since-checkpoint
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--since-checkpoint", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "should only return messages after checkpoint");
+    assert!(arr[0]["content"].as_str().unwrap().contains("after checkpoint"));
+}
+
+#[test]
+fn message_read_since_checkpoint_no_checkpoint() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "no-checkpoint-test");
+
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "msg one", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "msg two", "--sender", "a"])
+        .env("AIBOARD_DATA_DIR", &db_path).assert().success();
+
+    // Read --since-checkpoint with no checkpoint: should return all messages
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--since-checkpoint", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "should return all messages when no checkpoint exists");
 }

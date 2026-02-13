@@ -35,6 +35,40 @@ impl Default for ThreadStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreadPhase {
+    Planning,
+    Implementing,
+    Reviewing,
+    Done,
+}
+
+impl std::fmt::Display for ThreadPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadPhase::Planning => write!(f, "planning"),
+            ThreadPhase::Implementing => write!(f, "implementing"),
+            ThreadPhase::Reviewing => write!(f, "reviewing"),
+            ThreadPhase::Done => write!(f, "done"),
+        }
+    }
+}
+
+impl std::str::FromStr for ThreadPhase {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "planning" => Ok(ThreadPhase::Planning),
+            "implementing" => Ok(ThreadPhase::Implementing),
+            "reviewing" => Ok(ThreadPhase::Reviewing),
+            "done" => Ok(ThreadPhase::Done),
+            other => Err(format!("unknown thread phase: {}", other)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thread {
     pub id: String,
@@ -42,6 +76,7 @@ pub struct Thread {
     pub title: String,
     pub source_url: Option<String>,
     pub status: ThreadStatus,
+    pub phase: Option<ThreadPhase>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

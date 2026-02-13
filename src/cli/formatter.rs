@@ -108,11 +108,16 @@ pub fn format_thread_text(thread: &Thread, full: bool) -> String {
     } else {
         &thread.id[..8.min(thread.id.len())]
     };
+    let phase_str = match &thread.phase {
+        Some(p) => p.to_string(),
+        None => "-".to_string(),
+    };
     let local_time = thread.updated_at.with_timezone(&Local);
     format!(
-        "{}\t{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}\t{}",
         id,
         thread.status,
+        phase_str,
         name,
         thread.title,
         local_time.format("%Y-%m-%d %H:%M:%S"),

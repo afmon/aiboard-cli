@@ -70,8 +70,8 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
                 }
             }
             "Stop" => {
-                let content = "[session stop]".to_string();
-                (Role::Assistant, content, None, "system")
+                // Stop events are intentionally not persisted to avoid noisy records.
+                return Ok(0);
             }
             other => {
                 let content = format!("[{}] event received", other);
@@ -93,6 +93,7 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
             title: format!("Session {}", short_id),
             source_url: None,
             status: ThreadStatus::default(),
+            phase: None,
             created_at: now,
             updated_at: now,
         };

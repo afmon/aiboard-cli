@@ -1,4 +1,4 @@
-use super::entity::{Message, Thread, ThreadStatus};
+use super::entity::{Message, Thread, ThreadPhase, ThreadStatus};
 use super::error::DomainError;
 
 pub trait ThreadRepository {
@@ -9,6 +9,7 @@ pub trait ThreadRepository {
     fn list(&self) -> Result<Vec<Thread>, DomainError>;
     fn list_by_status(&self, status: Option<ThreadStatus>) -> Result<Vec<Thread>, DomainError>;
     fn update_status(&self, id: &str, status: ThreadStatus) -> Result<(), DomainError>;
+    fn update_phase(&self, id: &str, phase: Option<ThreadPhase>) -> Result<(), DomainError>;
     fn delete(&self, id: &str) -> Result<(), DomainError>;
 }
 
@@ -26,4 +27,6 @@ pub trait MessageRepository {
     fn delete_older_than(&self, before: &chrono::DateTime<chrono::Utc>) -> Result<usize, DomainError>;
     fn find_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<Vec<Message>, DomainError>;
     fn count_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<usize, DomainError>;
+    fn find_by_type(&self, thread_id: Option<&str>, msg_type: &str) -> Result<Vec<Message>, DomainError>;
+    fn find_since_last_type(&self, thread_id: &str, msg_type: &str) -> Result<Vec<Message>, DomainError>;
 }
