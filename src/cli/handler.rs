@@ -291,6 +291,22 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                     // 特定スレッドを監視
                     let full_thread_id = thread_uc.resolve_id(thread_id)?;
                     let messages = message_uc.read(&full_thread_id)?;
+
+                    // 初回: 最新5件を表示（昇順なので末尾5件）
+                    let initial_count = messages.len().min(5);
+                    let initial = if initial_count > 0 {
+                        messages.iter().skip(messages.len() - initial_count).cloned().collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+
+                    if !initial.is_empty() {
+                        match format.as_str() {
+                            "json" => println!("{}", formatter::format_messages_json(&initial)),
+                            _ => println!("{}", formatter::format_messages_text(&initial, full)),
+                        }
+                    }
+
                     let mut last_ts = messages.last().map(|m| m.created_at);
 
                     eprintln!(
@@ -324,7 +340,18 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 None => {
                     // 全スレッドから監視
                     let messages = message_uc.list_recent(100)?;
-                    let mut last_ts = messages.last().map(|m| m.created_at);
+
+                    // 初回: 最新5件を表示（降順なので先頭5件、逆順にして古い順で表示）
+                    let initial = messages.iter().take(5).rev().cloned().collect::<Vec<_>>();
+
+                    if !initial.is_empty() {
+                        match format.as_str() {
+                            "json" => println!("{}", formatter::format_messages_json(&initial)),
+                            _ => println!("{}", formatter::format_messages_text(&initial, full)),
+                        }
+                    }
+
+                    let mut last_ts = messages.first().map(|m| m.created_at);
 
                     eprintln!("全スレッドを監視中... (Ctrl-C で終了)");
 
@@ -341,12 +368,14 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                         };
 
                         if !new_msgs.is_empty() {
-                            if let Some(m) = new_msgs.last() {
+                            // 降順で返るので、逆順にして古い順で表示
+                            let sorted: Vec<_> = new_msgs.into_iter().rev().collect();
+                            if let Some(m) = sorted.last() {
                                 last_ts = Some(m.created_at);
                             }
                             match format.as_str() {
-                                "json" => println!("{}", formatter::format_messages_json(&new_msgs)),
-                                _ => println!("{}", formatter::format_messages_text(&new_msgs, full)),
+                                "json" => println!("{}", formatter::format_messages_json(&sorted)),
+                                _ => println!("{}", formatter::format_messages_text(&sorted, full)),
                             }
                         }
                     }
