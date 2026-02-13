@@ -603,6 +603,23 @@ pub fn handle_setup(action: SetupAction) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+pub fn handle_notify(message: &str, title: &str) -> anyhow::Result<()> {
+    use winrt_notification::{Duration, Toast};
+
+    Toast::new(Toast::POWERSHELL_APP_ID)
+        .title(title)
+        .text1(message)
+        .duration(Duration::Short)
+        .show()
+        .map_err(|e| anyhow::anyhow!("通知の表示に失敗しました: {}", e))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn handle_notify(_message: &str, _title: &str) -> anyhow::Result<()> {
+    anyhow::bail!("notify コマンドは Windows のみ対応しています")
+}
+
 pub fn handle_util(action: UtilAction) -> anyhow::Result<()> {
     match action {
         UtilAction::Random { items, count } => {

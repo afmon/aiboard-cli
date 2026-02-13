@@ -86,6 +86,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Util { action } => {
             handler::handle_util(action)?;
         }
+        Commands::Notify { message, title } => {
+            handler::handle_notify(&message, &title)?;
+        }
     }
 
     Ok(())

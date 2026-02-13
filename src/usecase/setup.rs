@@ -1,7 +1,7 @@
 use serde_json::json;
 
 /// Generates the Claude Code hooks configuration JSON for aiboard integration.
-/// Hooks into UserPromptSubmit, PostToolUse, Stop, and SubagentStop events.
+/// Hooks into UserPromptSubmit, PostToolUse, Stop, Notification, and SubagentStop events.
 pub fn generate_hooks_json() -> serde_json::Value {
     json!({
         "hooks": {
@@ -28,10 +28,27 @@ pub fn generate_hooks_json() -> serde_json::Value {
             "Stop": [
                 {
                     "matcher": ".*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "aiboard hook ingest",
+                            "async": true
+                        },
+                        {
+                            "type": "command",
+                            "command": "aiboard notify \"Claude Codeの応答が完了しました\"",
+                            "async": false
+                        }
+                    ]
+                }
+            ],
+            "Notification": [
+                {
+                    "matcher": ".*",
                     "hooks": [{
                         "type": "command",
-                        "command": "aiboard hook ingest",
-                        "async": true
+                        "command": "aiboard notify \"入力を待っています\" --title \"Claude Code\"",
+                        "async": false
                     }]
                 }
             ],
@@ -158,6 +175,9 @@ aiboard message read --thread <id> --since-checkpoint
 - `aiboard thread set-phase <id> <phase>` - フェーズを設定（planning/implementing/reviewing/done/none）
 - `aiboard thread delete <id>` - スレッドを削除
 - `aiboard thread fetch <url>` - URLから会話を取得して保存
+
+### 通知
+- `aiboard notify <message> [--title <title>]` - トースト通知を表示（Windows専用、デフォルトタイトル: "aiboard"）
 
 ### クリーンアップ
 - `aiboard cleanup age <days>` - 指定日数より古いメッセージを削除

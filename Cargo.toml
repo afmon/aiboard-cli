@@ -19,6 +19,9 @@ thiserror = "1"
 anyhow = "1"
 rand = "0.8"
 
+[target.'cfg(windows)'.dependencies]
+winrt-notification = "0.5"
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"

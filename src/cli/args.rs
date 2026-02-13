@@ -39,6 +39,14 @@ pub enum Commands {
         #[command(subcommand)]
         action: UtilAction,
     },
+    /// トースト通知を表示する（Windows専用）
+    Notify {
+        /// 通知メッセージ
+        message: String,
+        /// 通知タイトル
+        #[arg(long, default_value = "aiboard")]
+        title: String,
+    },
 }
 
 #[derive(Subcommand)]
