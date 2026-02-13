@@ -34,6 +34,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: SetupAction,
     },
+    /// ユーティリティコマンド
+    Util {
+        #[command(subcommand)]
+        action: UtilAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -275,5 +280,18 @@ pub enum SetupAction {
         /// 生成した skill を .claude/skills/ に適用する
         #[arg(long)]
         apply: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum UtilAction {
+    /// リストからランダムに要素を選択する
+    Random {
+        /// 選択対象の要素（スペース区切り）
+        #[arg(required = true)]
+        items: Vec<String>,
+        /// 選択する要素の数（デフォルト: 1）
+        #[arg(short = 'n', long, default_value = "1")]
+        count: usize,
     },
 }
