@@ -110,8 +110,9 @@ pub fn format_thread_text(thread: &Thread, full: bool) -> String {
     };
     let local_time = thread.updated_at.with_timezone(&Local);
     format!(
-        "{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}",
         id,
+        thread.status,
         name,
         thread.title,
         local_time.format("%Y-%m-%d %H:%M:%S"),

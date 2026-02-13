@@ -147,7 +147,7 @@ pub enum ThreadAction {
         /// thread のタイトル
         title: String,
     },
-    /// 全 thread を一覧表示する
+    /// thread を一覧表示する
     List {
         /// ID を省略せず全文表示する
         #[arg(long)]
@@ -155,9 +155,22 @@ pub enum ThreadAction {
         /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
+        /// ステータスでフィルター（open, closed, all）
+        #[arg(long, default_value = "all")]
+        status: String,
     },
     /// thread とその message を削除する
     Delete {
+        /// thread ID
+        id: String,
+    },
+    /// thread をクローズする
+    Close {
+        /// thread ID
+        id: String,
+    },
+    /// クローズされた thread を再オープンする
+    Reopen {
         /// thread ID
         id: String,
     },

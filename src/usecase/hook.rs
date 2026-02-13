@@ -1,4 +1,4 @@
-use crate::domain::entity::{Message, Role, Thread};
+use crate::domain::entity::{Message, Role, Thread, ThreadStatus};
 use crate::domain::error::DomainError;
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 use chrono::Utc;
@@ -92,10 +92,18 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
             name: None,
             title: format!("Session {}", short_id),
             source_url: None,
+            status: ThreadStatus::default(),
             created_at: now,
             updated_at: now,
         };
         self.thread_repo.upsert(&thread)?;
+
+        // クローズ済みスレッドへの投稿を警告
+        if let Ok(Some(existing)) = self.thread_repo.find_by_id(&thread_id) {
+            if existing.status == ThreadStatus::Closed {
+                eprintln!("警告: thread {} はクローズされています", &thread_id[..8.min(thread_id.len())]);
+            }
+        }
 
         let message = Message {
             id: Uuid::new_v4().to_string(),

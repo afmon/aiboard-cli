@@ -1380,3 +1380,175 @@ fn message_help_shows_mentions() {
         .success()
         .stdout(predicate::str::contains("mentions"));
 }
+
+// --- Thread close/reopen tests ---
+
+#[test]
+fn thread_close_reopen() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "close-reopen-test");
+
+    // Close the thread
+    cmd()
+        .args(["thread", "close", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("クローズしました"));
+
+    // Verify status is closed via list --status closed
+    let output = cmd()
+        .args(["thread", "list", "--status", "closed", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["status"], "closed");
+
+    // Reopen the thread
+    cmd()
+        .args(["thread", "reopen", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("再オープンしました"));
+
+    // Verify status is open via list --status open
+    let output = cmd()
+        .args(["thread", "list", "--status", "open", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["status"], "open");
+}
+
+#[test]
+fn thread_close_idempotent() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "close-idempotent-test");
+
+    // Close the thread
+    cmd()
+        .args(["thread", "close", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Close again - should succeed (idempotent)
+    cmd()
+        .args(["thread", "close", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("クローズしました"));
+}
+
+#[test]
+fn thread_list_status_filter() {
+    let (_dir, db_path) = test_db();
+    let _thread_a = create_thread(&db_path, "filter-open");
+    let thread_b = create_thread(&db_path, "filter-closed");
+
+    // Close thread B
+    cmd()
+        .args(["thread", "close", &thread_b])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // List --status open: should only show thread A
+    let output = cmd()
+        .args(["thread", "list", "--status", "open", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["title"].as_str().unwrap().contains("filter-open"));
+
+    // List --status closed: should only show thread B
+    let output = cmd()
+        .args(["thread", "list", "--status", "closed", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["title"].as_str().unwrap().contains("filter-closed"));
+
+    // List --status all (default): should show both
+    let output = cmd()
+        .args(["thread", "list", "--status", "all", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+}
+
+#[test]
+fn message_post_to_closed_thread_warns() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "closed-post-test");
+
+    // Close the thread
+    cmd()
+        .args(["thread", "close", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Post to closed thread - should succeed but warn on stderr
+    let output = cmd()
+        .args([
+            "message", "post",
+            "--thread", &thread_id,
+            "--content", "message to closed thread",
+            "--sender", "test-agent",
+        ])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "posting to closed thread should succeed");
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("クローズされています"), "should warn about closed thread on stderr");
+
+    // Verify the message was actually posted
+    cmd()
+        .args(["message", "read", "--thread", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("message to closed thread"));
+}
+
+#[test]
+fn close_nonexistent_thread() {
+    let (_dir, db_path) = test_db();
+
+    // Close a nonexistent thread - should fail
+    cmd()
+        .args(["thread", "close", "nonexistent-thread-id"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}

@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::cli::args::*;
 use crate::cli::formatter;
-use crate::domain::entity::Role;
+use crate::domain::entity::{Role, ThreadStatus};
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 use crate::usecase::cleanup::CleanupUseCase;
 use crate::usecase::hook::HookUseCase;
@@ -64,6 +64,14 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             metadata,
         } => {
             let full_thread_id = thread_uc.resolve_id(&thread)?;
+
+            // クローズ済みスレッドへの投稿を警告
+            if let Ok(Some(t)) = thread_uc.find_by_id(&full_thread_id) {
+                if t.status == ThreadStatus::Closed {
+                    eprintln!("警告: thread {} はクローズされています", &thread[..8.min(thread.len())]);
+                }
+            }
+
             let body = match content {
                 Some(c) => c,
                 None => read_stdin()?,
@@ -218,8 +226,13 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
             let thread = thread_uc.create(&title)?;
             println!("{}", thread.id);
         }
-        ThreadAction::List { full, format } => {
-            let threads = thread_uc.list()?;
+        ThreadAction::List { full, format, status } => {
+            let status_filter = match status.as_str() {
+                "open" => Some(ThreadStatus::Open),
+                "closed" => Some(ThreadStatus::Closed),
+                _ => None,
+            };
+            let threads = thread_uc.list_by_status(status_filter)?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_threads_json(&threads)),
                 _ => println!("{}", formatter::format_threads_text(&threads, full)),
@@ -228,6 +241,14 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
         ThreadAction::Delete { id } => {
             thread_uc.delete(&id)?;
             eprintln!("thread {} を削除しました", id);
+        }
+        ThreadAction::Close { id } => {
+            thread_uc.close(&id)?;
+            eprintln!("thread {} をクローズしました", id);
+        }
+        ThreadAction::Reopen { id } => {
+            thread_uc.reopen(&id)?;
+            eprintln!("thread {} を再オープンしました", id);
         }
         ThreadAction::Fetch { url, title, sender } => {
             eprintln!("{} を取得中...", url);

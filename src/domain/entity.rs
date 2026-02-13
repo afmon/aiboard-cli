@@ -1,12 +1,47 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreadStatus {
+    Open,
+    Closed,
+}
+
+impl std::fmt::Display for ThreadStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadStatus::Open => write!(f, "open"),
+            ThreadStatus::Closed => write!(f, "closed"),
+        }
+    }
+}
+
+impl std::str::FromStr for ThreadStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "open" => Ok(ThreadStatus::Open),
+            "closed" => Ok(ThreadStatus::Closed),
+            other => Err(format!("unknown thread status: {}", other)),
+        }
+    }
+}
+
+impl Default for ThreadStatus {
+    fn default() -> Self {
+        ThreadStatus::Open
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thread {
     pub id: String,
     pub name: Option<String>,
     pub title: String,
     pub source_url: Option<String>,
+    pub status: ThreadStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

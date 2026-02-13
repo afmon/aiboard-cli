@@ -1,4 +1,4 @@
-use super::entity::{Message, Thread};
+use super::entity::{Message, Thread, ThreadStatus};
 use super::error::DomainError;
 
 pub trait ThreadRepository {
@@ -7,6 +7,8 @@ pub trait ThreadRepository {
     fn find_by_id(&self, id: &str) -> Result<Option<Thread>, DomainError>;
     fn resolve_short_id(&self, short_id: &str) -> Result<String, DomainError>;
     fn list(&self) -> Result<Vec<Thread>, DomainError>;
+    fn list_by_status(&self, status: Option<ThreadStatus>) -> Result<Vec<Thread>, DomainError>;
+    fn update_status(&self, id: &str, status: ThreadStatus) -> Result<(), DomainError>;
     fn delete(&self, id: &str) -> Result<(), DomainError>;
 }
 
