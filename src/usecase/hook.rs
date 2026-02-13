@@ -70,13 +70,22 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
                 }
             }
             "Stop" => {
-                // Stop events are intentionally not persisted to avoid noisy records.
-                return Ok(0);
+                // Extract main agent's last response from transcript_path
+                match Self::parse_transcript_last_assistant(&parsed, "transcript_path") {
+                    Some(content) => {
+                        (Role::Assistant, content, Some("claude".to_string()), "agent")
+                    }
+                    None => return Ok(0),
+                }
             }
             "SubagentStop" => {
-                // Extract subagent output from agent_transcript_path
-                match Self::parse_subagent_output(&parsed) {
-                    Some((content, agent_type)) => {
+                let agent_type = parsed
+                    .get("agent_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                match Self::parse_transcript_last_assistant(&parsed, "agent_transcript_path") {
+                    Some(content) => {
                         let sender = format!("subagent:{}", agent_type);
                         (Role::Assistant, content, Some(sender), "agent")
                     }
@@ -137,17 +146,15 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
         self.repo.insert_batch(&[message])
     }
 
-    /// Extract subagent output from agent_transcript_path.
-    /// Returns (content, agent_type) if successful.
-    fn parse_subagent_output(parsed: &serde_json::Value) -> Option<(String, String)> {
-        let agent_type = parsed
-            .get("agent_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-
+    /// Extract the last assistant message from a transcript JSONL file.
+    /// `path_key` specifies which JSON field contains the transcript path
+    /// ("transcript_path" for Stop, "agent_transcript_path" for SubagentStop).
+    fn parse_transcript_last_assistant(
+        parsed: &serde_json::Value,
+        path_key: &str,
+    ) -> Option<String> {
         let transcript_path = parsed
-            .get("agent_transcript_path")
+            .get(path_key)
             .and_then(|v| v.as_str())?;
 
         // Read the transcript file (JSONL format)
@@ -168,7 +175,7 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
             }
         }
 
-        last_assistant_content.map(|content| (content, agent_type))
+        last_assistant_content
     }
 
     /// Parse AskUserQuestion tool_response into "Q: ... / A: ..." format.
