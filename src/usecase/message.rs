@@ -13,6 +13,7 @@ impl<R: MessageRepository> MessageUseCase<R> {
         Self { repo }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn post(
         &self,
         thread_id: &str,

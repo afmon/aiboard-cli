@@ -1979,3 +1979,34 @@ fn message_read_since_checkpoint_no_checkpoint() {
     let arr = parsed.as_array().unwrap();
     assert_eq!(arr.len(), 2, "should return all messages when no checkpoint exists");
 }
+
+// --- Message watch tests ---
+
+#[test]
+fn message_help_shows_watch() {
+    cmd()
+        .args(["message", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("watch"));
+}
+
+#[test]
+fn watch_nonexistent_thread() {
+    let (_dir, db_path) = test_db();
+
+    cmd()
+        .args(["message", "watch", "--thread", "nonexistent-thread-id"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn watch_requires_thread_arg() {
+    cmd()
+        .args(["message", "watch"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--thread"));
+}

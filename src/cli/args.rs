@@ -145,6 +145,21 @@ pub enum MessageAction {
         #[arg(long, default_value = "text")]
         format: String,
     },
+    /// thread の新着 message をリアルタイム監視する
+    Watch {
+        /// thread ID
+        #[arg(long)]
+        thread: String,
+        /// ポーリング間隔（秒）
+        #[arg(long, default_value = "3")]
+        interval: u64,
+        /// 内容を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
+        /// 出力形式（text, json）
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
     /// message の内容を更新する
     Update {
         /// message ID（短い prefix でも可）
