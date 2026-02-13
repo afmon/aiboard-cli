@@ -457,8 +457,18 @@ pub fn handle_hook<T: ThreadRepository, M: MessageRepository>(
     hook_uc: &HookUseCase<T, M>,
 ) -> anyhow::Result<()> {
     match action {
-        HookAction::Ingest { thread } => {
+        HookAction::Ingest { thread, debug } => {
             let input = read_stdin()?;
+
+            if debug {
+                let debug_dir = crate::dirs_fallback().join("debug");
+                let _ = std::fs::create_dir_all(&debug_dir);
+                let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S_%3f");
+                let path = debug_dir.join(format!("hook_{}.json", ts));
+                let _ = std::fs::write(&path, &input);
+                eprintln!("DEBUG: hook入力を {} に保存", path.display());
+            }
+
             let count = hook_uc.ingest(thread.as_deref(), &input)?;
             eprintln!("{} 件の message を取り込みました", count);
         }

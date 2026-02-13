@@ -155,19 +155,37 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
     ) -> Option<String> {
         let transcript_path = parsed
             .get(path_key)
-            .and_then(|v| v.as_str())?;
+            .and_then(|v| v.as_str());
+
+        let transcript_path = match transcript_path {
+            Some(p) => p,
+            None => {
+                eprintln!("DEBUG: transcript key '{}' not found in hook JSON", path_key);
+                return None;
+            }
+        };
 
         // Read the transcript file (JSONL format)
-        let content = std::fs::read_to_string(transcript_path).ok()?;
+        let content = match std::fs::read_to_string(transcript_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("DEBUG: failed to read transcript '{}': {}", transcript_path, e);
+                return None;
+            }
+        };
 
-        // Parse JSONL and find the last assistant message
+        // Parse JSONL and find the last assistant text message.
+        // Transcript format: each line is a JSON object with "type" field.
+        // Assistant messages have: {"type": "assistant", "message": {"role": "assistant", "content": [...]}}
         let mut last_assistant_content: Option<String> = None;
 
         for line in content.lines() {
             if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(role) = entry.get("role").and_then(|r| r.as_str()) {
-                    if role == "assistant" {
-                        if let Some(text) = Self::extract_text_content(&entry) {
+                let entry_type = entry.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                if entry_type == "assistant" {
+                    // content is inside "message" object
+                    if let Some(msg) = entry.get("message") {
+                        if let Some(text) = Self::extract_text_content(msg) {
                             last_assistant_content = Some(text);
                         }
                     }
