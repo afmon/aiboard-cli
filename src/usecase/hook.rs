@@ -70,13 +70,22 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
                 }
             }
             "Stop" => {
-                // Stop events are intentionally not persisted to avoid noisy records.
-                return Ok(0);
+                // Extract main agent's last response from transcript_path
+                match Self::parse_transcript_last_assistant(&parsed, "transcript_path") {
+                    Some(content) => {
+                        (Role::Assistant, content, Some("claude".to_string()), "agent")
+                    }
+                    None => return Ok(0),
+                }
             }
             "SubagentStop" => {
-                // Extract subagent output from agent_transcript_path
-                match Self::parse_subagent_output(&parsed) {
-                    Some((content, agent_type)) => {
+                let agent_type = parsed
+                    .get("agent_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                match Self::parse_transcript_last_assistant(&parsed, "agent_transcript_path") {
+                    Some(content) => {
                         let sender = format!("subagent:{}", agent_type);
                         (Role::Assistant, content, Some(sender), "agent")
                     }
@@ -137,38 +146,90 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
         self.repo.insert_batch(&[message])
     }
 
-    /// Extract subagent output from agent_transcript_path.
-    /// Returns (content, agent_type) if successful.
-    fn parse_subagent_output(parsed: &serde_json::Value) -> Option<(String, String)> {
-        let agent_type = parsed
-            .get("agent_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-
+    /// Extract the last assistant message from a transcript JSONL file.
+    /// `path_key` specifies which JSON field contains the transcript path
+    /// ("transcript_path" for Stop, "agent_transcript_path" for SubagentStop).
+    fn parse_transcript_last_assistant(
+        parsed: &serde_json::Value,
+        path_key: &str,
+    ) -> Option<String> {
         let transcript_path = parsed
-            .get("agent_transcript_path")
-            .and_then(|v| v.as_str())?;
+            .get(path_key)
+            .and_then(|v| v.as_str());
+
+        let transcript_path = match transcript_path {
+            Some(p) => p,
+            None => {
+                eprintln!("DEBUG: transcript key '{}' not found in hook JSON", path_key);
+                return None;
+            }
+        };
 
         // Read the transcript file (JSONL format)
-        let content = std::fs::read_to_string(transcript_path).ok()?;
+        let content = match std::fs::read_to_string(transcript_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("DEBUG: failed to read transcript '{}': {}", transcript_path, e);
+                return None;
+            }
+        };
 
-        // Parse JSONL and find the last assistant message
+        // Parse JSONL and find the last assistant text message.
+        // Transcript format: each line is a JSON object with "type" field.
+        // Assistant messages have: {"type": "assistant", "message": {"role": "assistant", "content": [...]}}
         let mut last_assistant_content: Option<String> = None;
 
         for line in content.lines() {
             if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(role) = entry.get("role").and_then(|r| r.as_str()) {
-                    if role == "assistant" {
-                        if let Some(text) = entry.get("content").and_then(|c| c.as_str()) {
-                            last_assistant_content = Some(text.to_string());
+                let entry_type = entry.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                if entry_type == "assistant" {
+                    // content is inside "message" object
+                    if let Some(msg) = entry.get("message") {
+                        if let Some(text) = Self::extract_text_content(msg) {
+                            last_assistant_content = Some(text);
                         }
                     }
                 }
             }
         }
 
-        last_assistant_content.map(|content| (content, agent_type))
+        last_assistant_content
+    }
+
+    /// Extract text from a transcript entry's "content" field.
+    /// Handles both string format and array-of-blocks format:
+    ///   - String: "content": "hello"
+    ///   - Array:  "content": [{"type":"text","text":"hello"}, ...]
+    fn extract_text_content(entry: &serde_json::Value) -> Option<String> {
+        let content = entry.get("content")?;
+
+        // Case 1: content is a plain string
+        if let Some(s) = content.as_str() {
+            if s.is_empty() {
+                return None;
+            }
+            return Some(s.to_string());
+        }
+
+        // Case 2: content is an array of content blocks
+        if let Some(arr) = content.as_array() {
+            let texts: Vec<&str> = arr
+                .iter()
+                .filter_map(|block| {
+                    if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        block.get("text").and_then(|t| t.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if texts.is_empty() {
+                return None;
+            }
+            return Some(texts.join("\n"));
+        }
+
+        None
     }
 
     /// Parse AskUserQuestion tool_response into "Q: ... / A: ..." format.

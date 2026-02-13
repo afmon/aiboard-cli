@@ -236,6 +236,9 @@ pub enum HookAction {
         /// thread ID の上書き（省略時は stdin JSON の session_id を使用）
         #[arg(long)]
         thread: Option<String>,
+        /// 入力JSONをデバッグ用にファイルに保存する
+        #[arg(long)]
+        debug: bool,
     },
 }
 
