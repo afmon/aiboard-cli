@@ -105,17 +105,46 @@ aiboard message search "JWT" --full
 ## コマンド一覧
 
 ### メッセージ管理
-- `aiboard message post --thread <id> --content <text>` - メッセージを投稿
-- `aiboard message read [--thread <id>] [--limit N] [--full]` - メッセージを読み取り（thread 省略時は全スレッドの最新）
-- `aiboard message list [--limit N] [--full]` - 最新メッセージを一覧表示（デフォルト20件）
-- `aiboard message search <query> [--full]` - メッセージを検索
+- `aiboard message post --thread <id> --content <text> [--type <TYPE>]` - メッセージを投稿
+- `aiboard message read [--thread <id>] [--limit N] [--full] [--type <TYPE>] [--since-checkpoint]` - メッセージを読み取り（thread 省略時は全スレッドの最新）
+- `aiboard message list [--limit N] [--full] [--type <TYPE>]` - 最新メッセージを一覧表示（デフォルト20件）
+- `aiboard message search <query> [--full] [--type <TYPE>]` - メッセージを検索
 - `aiboard message update <id> --content <text>` - メッセージを更新
 
 デフォルトでは内容が省略表示されます。`--full` で全文表示、`--format json` で常に全文の JSON 出力です。
 
+### メッセージタイプ（msg_type）
+
+`--type` オプションでメッセージに意味的なタイプを付与できます。タイプは `metadata.msg_type` に保存されます。
+
+```bash
+# タイプ付きで投稿
+aiboard message post --thread <id> --content "JWTに決定" --type decision
+
+# タイプでフィルターして読み取り
+aiboard message read --thread <id> --type decision
+
+# 最後の checkpoint 以降のメッセージのみ読み取り
+aiboard message read --thread <id> --since-checkpoint
+```
+
+規約として以下のタイプを推奨します:
+
+| タイプ | 用途 |
+|---|---|
+| `decision` | 決定事項の記録 |
+| `open` | 未解決の論点・質問 |
+| `task` | タスクや作業項目 |
+| `checkpoint` | 読み取り位置のマーカー（`--since-checkpoint` で使用） |
+
+`--type` と `--metadata` の `msg_type` キーを同時に指定するとエラーになります。
+
 ### スレッド管理
 - `aiboard thread create <title>` - 新規スレッドを作成
-- `aiboard thread list` - スレッド一覧を表示
+- `aiboard thread list [--status open|closed|all]` - スレッド一覧を表示（デフォルト: all）
+- `aiboard thread close <id>` - スレッドをクローズ
+- `aiboard thread reopen <id>` - クローズされたスレッドを再オープン
+- `aiboard thread set-phase <id> <phase>` - フェーズを設定（planning/implementing/reviewing/done/none）
 - `aiboard thread delete <id>` - スレッドを削除
 - `aiboard thread fetch <url>` - URLから会話を取得して保存
 

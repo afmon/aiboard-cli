@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
 use crate::domain::entity::{Message, Role, Thread, ThreadPhase, ThreadStatus};
@@ -532,6 +532,61 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
 
     fn count_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<usize, DomainError> {
         self.find_mentions(thread_id, mention_target).map(|v| v.len())
+    }
+
+    fn find_by_type(&self, thread_id: Option<&str>, msg_type: &str) -> Result<Vec<Message>, DomainError> {
+        let messages: Vec<Message> = match thread_id {
+            Some(tid) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                     FROM messages WHERE thread_id = ?1 AND json_extract(metadata, '$.msg_type') = ?2 ORDER BY created_at DESC"
+                )?;
+                let rows = stmt.query_map(params![tid, msg_type], Self::row_to_message)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+            None => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                     FROM messages WHERE json_extract(metadata, '$.msg_type') = ?1 ORDER BY created_at DESC"
+                )?;
+                let rows = stmt.query_map(params![msg_type], Self::row_to_message)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+        };
+        Ok(messages)
+    }
+
+    fn find_since_last_type(&self, thread_id: &str, msg_type: &str) -> Result<Vec<Message>, DomainError> {
+        // Find the created_at of the most recent message with the given msg_type
+        let checkpoint_time: Option<String> = self.conn
+            .query_row(
+                "SELECT created_at FROM messages
+                 WHERE thread_id = ?1 AND json_extract(metadata, '$.msg_type') = ?2
+                 ORDER BY created_at DESC LIMIT 1",
+                params![thread_id, msg_type],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| DomainError::Database(format!("failed to find last type: {}", e)))?;
+
+        let messages = match checkpoint_time {
+            Some(ct) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                     FROM messages WHERE thread_id = ?1 AND created_at > ?2 ORDER BY created_at ASC"
+                )?;
+                let rows = stmt.query_map(params![thread_id, ct], Self::row_to_message)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+            None => {
+                // No checkpoint found, return all messages
+                self.find_by_thread(thread_id)?
+            }
+        };
+        Ok(messages)
     }
 }
 

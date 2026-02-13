@@ -74,6 +74,22 @@ impl<R: MessageRepository> MessageUseCase<R> {
         self.repo.count_mentions(thread_id, mention_target)
     }
 
+    pub fn find_by_type(
+        &self,
+        thread_id: Option<&str>,
+        msg_type: &str,
+    ) -> Result<Vec<Message>, DomainError> {
+        self.repo.find_by_type(thread_id, msg_type)
+    }
+
+    pub fn find_since_last_type(
+        &self,
+        thread_id: &str,
+        msg_type: &str,
+    ) -> Result<Vec<Message>, DomainError> {
+        self.repo.find_since_last_type(thread_id, msg_type)
+    }
+
     pub fn update(&self, short_id: &str, content: &str) -> Result<String, DomainError> {
         let full_id = self.repo.resolve_short_id(short_id)?;
         self.repo.update_content(&full_id, content)?;
