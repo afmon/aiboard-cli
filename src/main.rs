@@ -83,6 +83,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Setup { action } => {
             handler::handle_setup(action)?;
         }
+        Commands::Util { action } => {
+            handler::handle_util(action)?;
+        }
     }
 
     Ok(())

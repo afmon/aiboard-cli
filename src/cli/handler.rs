@@ -592,3 +592,39 @@ pub fn handle_setup(action: SetupAction) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+pub fn handle_util(action: UtilAction) -> anyhow::Result<()> {
+    match action {
+        UtilAction::Random { items, count } => {
+            use rand::seq::SliceRandom;
+            use rand::thread_rng;
+
+            if items.is_empty() {
+                anyhow::bail!("選択対象が指定されていません");
+            }
+
+            if count == 0 {
+                anyhow::bail!("選択数は1以上を指定してください");
+            }
+
+            if count > items.len() {
+                anyhow::bail!(
+                    "選択数（{}）が要素数（{}）を超えています",
+                    count,
+                    items.len()
+                );
+            }
+
+            let mut rng = thread_rng();
+            let selected: Vec<_> = items
+                .choose_multiple(&mut rng, count)
+                .cloned()
+                .collect();
+
+            for item in selected {
+                println!("{}", item);
+            }
+        }
+    }
+    Ok(())
+}

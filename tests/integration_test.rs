@@ -2002,3 +2002,47 @@ fn watch_nonexistent_thread() {
         .failure();
 }
 
+#[test]
+fn util_random_single() {
+    let output = cmd()
+        .args(["util", "random", "anan", "coco", "ema", "-n", "1"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let result = String::from_utf8(output.stdout).unwrap();
+    let selected = result.trim();
+
+    // 選択された要素が入力に含まれているか確認
+    assert!(["anan", "coco", "ema"].contains(&selected));
+}
+
+#[test]
+fn util_random_multiple() {
+    let output = cmd()
+        .args(["util", "random", "anan", "coco", "ema", "hanna", "-n", "2"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let result = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<_> = result.lines().collect();
+
+    // 2つの要素が選択されているか確認
+    assert_eq!(lines.len(), 2);
+
+    // 各要素が入力に含まれているか確認
+    for line in lines {
+        assert!(["anan", "coco", "ema", "hanna"].contains(&line));
+    }
+}
+
+#[test]
+fn util_random_count_exceeds_items() {
+    cmd()
+        .args(["util", "random", "anan", "coco", "-n", "3"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("要素数"));
+}
+
