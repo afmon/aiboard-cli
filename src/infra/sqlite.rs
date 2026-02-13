@@ -27,6 +27,7 @@ impl Database {
         Ok(db)
     }
 
+    #[allow(dead_code)]
     pub fn open_in_memory() -> Result<Self, DomainError> {
         let conn = Connection::open_in_memory()
             .map_err(|e| DomainError::Database(format!("failed to open in-memory database: {}", e)))?;

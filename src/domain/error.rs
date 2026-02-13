@@ -37,10 +37,6 @@ impl DomainError {
         }
     }
 
-    /// Returns true if this is an input validation error (exit code 2).
-    pub fn is_input_error(&self) -> bool {
-        self.exit_code() == 2
-    }
 }
 
 impl From<std::io::Error> for DomainError {

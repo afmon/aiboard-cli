@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThreadStatus {
+    #[default]
     Open,
     Closed,
 }
@@ -29,11 +30,6 @@ impl std::str::FromStr for ThreadStatus {
     }
 }
 
-impl Default for ThreadStatus {
-    fn default() -> Self {
-        ThreadStatus::Open
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

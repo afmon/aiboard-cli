@@ -1,4 +1,6 @@
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -25,7 +27,7 @@ fn read_stdin() -> anyhow::Result<String> {
         bail!("入力が 1MB の上限を超えています（{} バイト）", bytes_read);
     }
 
-    if buf.iter().any(|&b| b == 0) {
+    if buf.contains(&0) {
         bail!("入力に NUL バイトが含まれています");
     }
 
@@ -269,6 +271,118 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                     }
                 }
             }
+        }
+
+        MessageAction::Watch {
+            thread,
+            interval,
+            full,
+            format,
+        } => {
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            ctrlc::set_handler(move || {
+                r.store(false, Ordering::SeqCst);
+            })
+            .context("Ctrl-C ハンドラーの設定に失敗しました")?;
+
+            match thread {
+                Some(ref thread_id) => {
+                    // 特定スレッドを監視
+                    let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                    let messages = message_uc.read(&full_thread_id)?;
+
+                    // 初回: 最新5件を表示（昇順なので末尾5件）
+                    let initial_count = messages.len().min(5);
+                    let initial = if initial_count > 0 {
+                        messages.iter().skip(messages.len() - initial_count).cloned().collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+
+                    if !initial.is_empty() {
+                        match format.as_str() {
+                            "json" => println!("{}", formatter::format_messages_json(&initial)),
+                            _ => println!("{}", formatter::format_messages_text(&initial, full)),
+                        }
+                    }
+
+                    let mut last_ts = messages.last().map(|m| m.created_at);
+
+                    eprintln!(
+                        "thread {} を監視中... (Ctrl-C で終了)",
+                        &full_thread_id[..8.min(full_thread_id.len())]
+                    );
+
+                    while running.load(Ordering::SeqCst) {
+                        std::thread::sleep(std::time::Duration::from_secs(interval));
+                        if !running.load(Ordering::SeqCst) {
+                            break;
+                        }
+
+                        let all = message_uc.read(&full_thread_id)?;
+                        let new_msgs: Vec<_> = match last_ts {
+                            Some(ts) => all.into_iter().filter(|m| m.created_at > ts).collect(),
+                            None => all,
+                        };
+
+                        if !new_msgs.is_empty() {
+                            if let Some(m) = new_msgs.last() {
+                                last_ts = Some(m.created_at);
+                            }
+                            match format.as_str() {
+                                "json" => println!("{}", formatter::format_messages_json(&new_msgs)),
+                                _ => println!("{}", formatter::format_messages_text(&new_msgs, full)),
+                            }
+                        }
+                    }
+                }
+                None => {
+                    // 全スレッドから監視
+                    let messages = message_uc.list_recent(100)?;
+
+                    // 初回: 最新5件を表示（降順なので先頭5件、逆順にして古い順で表示）
+                    let initial = messages.iter().take(5).rev().cloned().collect::<Vec<_>>();
+
+                    if !initial.is_empty() {
+                        match format.as_str() {
+                            "json" => println!("{}", formatter::format_messages_json(&initial)),
+                            _ => println!("{}", formatter::format_messages_text(&initial, full)),
+                        }
+                    }
+
+                    let mut last_ts = messages.first().map(|m| m.created_at);
+
+                    eprintln!("全スレッドを監視中... (Ctrl-C で終了)");
+
+                    while running.load(Ordering::SeqCst) {
+                        std::thread::sleep(std::time::Duration::from_secs(interval));
+                        if !running.load(Ordering::SeqCst) {
+                            break;
+                        }
+
+                        let all = message_uc.list_recent(100)?;
+                        let new_msgs: Vec<_> = match last_ts {
+                            Some(ts) => all.into_iter().filter(|m| m.created_at > ts).collect(),
+                            None => all,
+                        };
+
+                        if !new_msgs.is_empty() {
+                            // 降順で返るので、逆順にして古い順で表示
+                            let sorted: Vec<_> = new_msgs.into_iter().rev().collect();
+                            if let Some(m) = sorted.last() {
+                                last_ts = Some(m.created_at);
+                            }
+                            match format.as_str() {
+                                "json" => println!("{}", formatter::format_messages_json(&sorted)),
+                                _ => println!("{}", formatter::format_messages_text(&sorted, full)),
+                            }
+                        }
+                    }
+                }
+            }
+
+            eprintln!("監視を終了しました");
         }
 
         MessageAction::Update { id, content } => {

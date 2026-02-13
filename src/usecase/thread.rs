@@ -34,10 +34,6 @@ impl<T: ThreadRepository, M: MessageRepository> ThreadUseCase<T, M> {
         Ok(thread)
     }
 
-    pub fn list(&self) -> Result<Vec<Thread>, DomainError> {
-        self.thread_repo.list()
-    }
-
     pub fn list_by_status(&self, status: Option<ThreadStatus>) -> Result<Vec<Thread>, DomainError> {
         self.thread_repo.list_by_status(status)
     }

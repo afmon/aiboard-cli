@@ -141,5 +141,5 @@ pub fn format_mention_notification(sender: &str, count: usize) -> String {
 }
 
 pub fn format_message_posted(msg: &Message) -> String {
-    format!("{}", msg.id)
+    msg.id.to_string()
 }

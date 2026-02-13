@@ -16,6 +16,7 @@ pub trait ThreadRepository {
 pub trait MessageRepository {
     fn insert(&self, message: &Message) -> Result<(), DomainError>;
     fn insert_batch(&self, messages: &[Message]) -> Result<usize, DomainError>;
+    #[allow(dead_code)]
     fn find_by_id(&self, id: &str) -> Result<Option<Message>, DomainError>;
     fn resolve_short_id(&self, short_id: &str) -> Result<String, DomainError>;
     fn find_by_thread(&self, thread_id: &str) -> Result<Vec<Message>, DomainError>;
