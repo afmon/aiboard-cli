@@ -1,7 +1,7 @@
 use serde_json::json;
 
 /// Generates the Claude Code hooks configuration JSON for aiboard integration.
-/// Hooks into UserPromptSubmit, PostToolUse, and Stop events.
+/// Hooks into UserPromptSubmit, PostToolUse, Stop, and SubagentStop events.
 pub fn generate_hooks_json() -> serde_json::Value {
     json!({
         "hooks": {
@@ -26,6 +26,16 @@ pub fn generate_hooks_json() -> serde_json::Value {
                 }
             ],
             "Stop": [
+                {
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "aiboard hook ingest",
+                        "async": true
+                    }]
+                }
+            ],
+            "SubagentStop": [
                 {
                     "matcher": ".*",
                     "hooks": [{
@@ -98,7 +108,8 @@ aiboard message search "JWT" --full
 
 - **UserPromptSubmit**: ユーザーの入力
 - **PostToolUse (AskUserQuestion のみ)**: ユーザーへの質問と回答を `[決定] Q: ... / A: ...` 形式で保存
-- **Stop**: 受信するが、ノイズ削減のため保存しない
+- **Stop**: メインエージェント応答終了時（受信するが、ノイズ削減のため保存しない）
+- **SubagentStop**: サブエージェント応答終了時（Task ツール呼び出しの結果を記録）
 
 ※ AskUserQuestion 以外のツールイベントはDB容量節約のためスキップされます。
 

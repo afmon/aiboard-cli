@@ -73,6 +73,20 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
                 // Stop events are intentionally not persisted to avoid noisy records.
                 return Ok(0);
             }
+            "SubagentStop" => {
+                // Extract subagent output from agent_transcript_path
+                match Self::parse_subagent_output(&parsed) {
+                    Some((content, agent_type)) => {
+                        let sender = format!("subagent:{}", agent_type);
+                        (Role::Assistant, content, Some(sender), "agent")
+                    }
+                    None => {
+                        // Fallback if transcript is unavailable
+                        let content = "[SubagentStop] event received".to_string();
+                        (Role::System, content, None, "system")
+                    }
+                }
+            }
             other => {
                 let content = format!("[{}] event received", other);
                 (Role::System, content, None, "system")
@@ -121,6 +135,40 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
         };
 
         self.repo.insert_batch(&[message])
+    }
+
+    /// Extract subagent output from agent_transcript_path.
+    /// Returns (content, agent_type) if successful.
+    fn parse_subagent_output(parsed: &serde_json::Value) -> Option<(String, String)> {
+        let agent_type = parsed
+            .get("agent_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let transcript_path = parsed
+            .get("agent_transcript_path")
+            .and_then(|v| v.as_str())?;
+
+        // Read the transcript file (JSONL format)
+        let content = std::fs::read_to_string(transcript_path).ok()?;
+
+        // Parse JSONL and find the last assistant message
+        let mut last_assistant_content: Option<String> = None;
+
+        for line in content.lines() {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(role) = entry.get("role").and_then(|r| r.as_str()) {
+                    if role == "assistant" {
+                        if let Some(text) = entry.get("content").and_then(|c| c.as_str()) {
+                            last_assistant_content = Some(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        last_assistant_content.map(|content| (content, agent_type))
     }
 
     /// Parse AskUserQuestion tool_response into "Q: ... / A: ..." format.
