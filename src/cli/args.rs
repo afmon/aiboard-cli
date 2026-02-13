@@ -64,9 +64,9 @@ pub enum MessageAction {
     },
     /// thread の message を読み取る
     Read {
-        /// thread ID
+        /// thread ID（省略時は全 thread から最新 message を取得）
         #[arg(long)]
-        thread: String,
+        thread: Option<String>,
         /// 返す message の最大件数
         #[arg(long)]
         limit: Option<usize>,
@@ -173,6 +173,13 @@ pub enum ThreadAction {
     Reopen {
         /// thread ID
         id: String,
+    },
+    /// thread のフェーズを設定する
+    SetPhase {
+        /// thread ID
+        id: String,
+        /// フェーズ（planning, implementing, reviewing, done, none）
+        phase: String,
     },
     /// URL から会話を取得して保存する
     Fetch {

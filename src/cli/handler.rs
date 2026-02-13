@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::cli::args::*;
 use crate::cli::formatter;
-use crate::domain::entity::{Role, ThreadStatus};
+use crate::domain::entity::{Role, ThreadPhase, ThreadStatus};
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 use crate::usecase::cleanup::CleanupUseCase;
 use crate::usecase::hook::HookUseCase;
@@ -112,8 +112,16 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             format,
             sender,
         } => {
-            let full_thread_id = thread_uc.resolve_id(&thread)?;
-            let mut messages = message_uc.read(&full_thread_id)?;
+            let mut messages = match thread.as_deref() {
+                Some(thread_id) => {
+                    let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                    message_uc.read(&full_thread_id)?
+                }
+                None => {
+                    let recent_limit = limit.unwrap_or(20);
+                    message_uc.list_recent(recent_limit)?
+                }
+            };
 
             if let Some(dt) = after.as_deref().and_then(parse_datetime_filter) {
                 messages.retain(|m| m.created_at > dt);
@@ -123,8 +131,10 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 messages.retain(|m| m.created_at < dt);
             }
 
-            if let Some(lim) = limit {
-                messages.truncate(lim);
+            if thread.is_some() {
+                if let Some(lim) = limit {
+                    messages.truncate(lim);
+                }
             }
 
             match format.as_str() {
@@ -249,6 +259,21 @@ pub fn handle_thread<T: ThreadRepository, M: MessageRepository>(
         ThreadAction::Reopen { id } => {
             thread_uc.reopen(&id)?;
             eprintln!("thread {} を再オープンしました", id);
+        }
+        ThreadAction::SetPhase { id, phase } => {
+            let phase_value = if phase == "none" {
+                None
+            } else {
+                let parsed: ThreadPhase = phase
+                    .parse()
+                    .map_err(|e: String| anyhow::anyhow!(e))?;
+                Some(parsed)
+            };
+            thread_uc.set_phase(&id, phase_value)?;
+            match phase_value {
+                Some(p) => eprintln!("thread {} のフェーズを {} に設定しました", id, p),
+                None => eprintln!("thread {} のフェーズを解除しました", id),
+            }
         }
         ThreadAction::Fetch { url, title, sender } => {
             eprintln!("{} を取得中...", url);

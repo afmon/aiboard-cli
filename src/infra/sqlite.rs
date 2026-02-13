@@ -2,13 +2,14 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
 
-use crate::domain::entity::{Message, Role, Thread, ThreadStatus};
+use crate::domain::entity::{Message, Role, Thread, ThreadPhase, ThreadStatus};
 use crate::domain::error::DomainError;
 use crate::domain::repository::{MessageRepository, ThreadRepository};
 
 const MIGRATION_V1: &str = include_str!("migrations/v001.sql");
 const MIGRATION_V2: &str = include_str!("migrations/v002.sql");
 const MIGRATION_V3: &str = include_str!("migrations/v003.sql");
+const MIGRATION_V4: &str = include_str!("migrations/v004.sql");
 
 
 pub struct Database {
@@ -93,6 +94,12 @@ impl Database {
                 .map_err(|e| DomainError::Database(format!("migration v3 failed: {}", e)))?;
         }
 
+        if version < 4 {
+            self.conn
+                .execute_batch(MIGRATION_V4)
+                .map_err(|e| DomainError::Database(format!("migration v4 failed: {}", e)))?;
+        }
+
         Ok(())
     }
 
@@ -131,15 +138,17 @@ impl<'a> SqliteThreadRepository<'a> {
 
 impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
     fn create(&self, thread: &Thread) -> Result<(), DomainError> {
+        let phase_str = thread.phase.map(|p| p.to_string());
         self.conn
             .execute(
-                "INSERT INTO threads (id, name, title, source_url, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO threads (id, name, title, source_url, status, phase, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     thread.id,
                     thread.name,
                     thread.title,
                     thread.source_url,
                     thread.status.to_string(),
+                    phase_str,
                     format_datetime(&thread.created_at),
                     format_datetime(&thread.updated_at),
                 ],
@@ -149,15 +158,17 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
     }
 
     fn upsert(&self, thread: &Thread) -> Result<(), DomainError> {
+        let phase_str = thread.phase.map(|p| p.to_string());
         self.conn
             .execute(
-                "INSERT OR IGNORE INTO threads (id, name, title, source_url, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR IGNORE INTO threads (id, name, title, source_url, status, phase, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     thread.id,
                     thread.name,
                     thread.title,
                     thread.source_url,
                     thread.status.to_string(),
+                    phase_str,
                     format_datetime(&thread.created_at),
                     format_datetime(&thread.updated_at),
                 ],
@@ -184,20 +195,23 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
 
     fn find_by_id(&self, id: &str) -> Result<Option<Thread>, DomainError> {
         let mut stmt = self.conn
-            .prepare("SELECT id, name, title, source_url, status, created_at, updated_at FROM threads WHERE id = ?1")?;
+            .prepare("SELECT id, name, title, source_url, status, phase, created_at, updated_at FROM threads WHERE id = ?1")?;
 
         let result = stmt
             .query_row(params![id], |row| {
                 let status_str: String = row.get(4)?;
                 let status = status_str.parse::<ThreadStatus>().unwrap_or(ThreadStatus::Open);
+                let phase_str: Option<String> = row.get(5)?;
+                let phase = phase_str.and_then(|s| s.parse::<ThreadPhase>().ok());
                 Ok(Thread {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     title: row.get(2)?,
                     source_url: row.get(3)?,
                     status,
-                    created_at: parse_datetime(&row.get::<_, String>(5)?)?,
-                    updated_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                    phase,
+                    created_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                    updated_at: parse_datetime(&row.get::<_, String>(7)?)?,
                 })
             });
 
@@ -210,20 +224,23 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
 
     fn list(&self) -> Result<Vec<Thread>, DomainError> {
         let mut stmt = self.conn
-            .prepare("SELECT id, name, title, source_url, status, created_at, updated_at FROM threads ORDER BY updated_at DESC")?;
+            .prepare("SELECT id, name, title, source_url, status, phase, created_at, updated_at FROM threads ORDER BY updated_at DESC")?;
 
         let threads = stmt
             .query_map([], |row| {
                 let status_str: String = row.get(4)?;
                 let status = status_str.parse::<ThreadStatus>().unwrap_or(ThreadStatus::Open);
+                let phase_str: Option<String> = row.get(5)?;
+                let phase = phase_str.and_then(|s| s.parse::<ThreadPhase>().ok());
                 Ok(Thread {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     title: row.get(2)?,
                     source_url: row.get(3)?,
                     status,
-                    created_at: parse_datetime(&row.get::<_, String>(5)?)?,
-                    updated_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                    phase,
+                    created_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                    updated_at: parse_datetime(&row.get::<_, String>(7)?)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -235,20 +252,23 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
         match status {
             Some(s) => {
                 let mut stmt = self.conn
-                    .prepare("SELECT id, name, title, source_url, status, created_at, updated_at FROM threads WHERE status = ?1 ORDER BY updated_at DESC")?;
+                    .prepare("SELECT id, name, title, source_url, status, phase, created_at, updated_at FROM threads WHERE status = ?1 ORDER BY updated_at DESC")?;
 
                 let threads = stmt
                     .query_map(params![s.to_string()], |row| {
                         let status_str: String = row.get(4)?;
                         let status = status_str.parse::<ThreadStatus>().unwrap_or(ThreadStatus::Open);
+                        let phase_str: Option<String> = row.get(5)?;
+                        let phase = phase_str.and_then(|s| s.parse::<ThreadPhase>().ok());
                         Ok(Thread {
                             id: row.get(0)?,
                             name: row.get(1)?,
                             title: row.get(2)?,
                             source_url: row.get(3)?,
                             status,
-                            created_at: parse_datetime(&row.get::<_, String>(5)?)?,
-                            updated_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                            phase,
+                            created_at: parse_datetime(&row.get::<_, String>(6)?)?,
+                            updated_at: parse_datetime(&row.get::<_, String>(7)?)?,
                         })
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
@@ -265,6 +285,21 @@ impl<'a> ThreadRepository for SqliteThreadRepository<'a> {
             .execute(
                 "UPDATE threads SET status = ?1, updated_at = ?2 WHERE id = ?3",
                 params![status.to_string(), now, id],
+            )?;
+
+        if affected == 0 {
+            return Err(DomainError::ThreadNotFound(id.to_string()));
+        }
+        Ok(())
+    }
+
+    fn update_phase(&self, id: &str, phase: Option<ThreadPhase>) -> Result<(), DomainError> {
+        let now = format_datetime(&Utc::now());
+        let phase_str = phase.map(|p| p.to_string());
+        let affected = self.conn
+            .execute(
+                "UPDATE threads SET phase = ?1, updated_at = ?2 WHERE id = ?3",
+                params![phase_str, now, id],
             )?;
 
         if affected == 0 {

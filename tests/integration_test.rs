@@ -684,6 +684,44 @@ fn search_with_sql_wildcards() {
 // --- CLI filter tests ---
 
 #[test]
+fn message_read_without_thread_reads_recent_messages() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "read-recent-default");
+
+    post_message(&db_path, &thread_id, "global recent message");
+
+    cmd()
+        .args(["message", "read"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("global recent message"));
+}
+
+#[test]
+fn message_read_without_thread_with_limit() {
+    let (_dir, db_path) = test_db();
+    let thread_a = create_thread(&db_path, "read-recent-limit-a");
+    let thread_b = create_thread(&db_path, "read-recent-limit-b");
+
+    post_message(&db_path, &thread_a, "thread a first");
+    post_message(&db_path, &thread_b, "thread b first");
+    post_message(&db_path, &thread_a, "thread a second");
+
+    let output = cmd()
+        .args(["message", "read", "--limit", "2", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+}
+
+#[test]
 fn message_read_with_limit() {
     let (_dir, db_path) = test_db();
     let thread_id = create_thread(&db_path, "limit-test");
@@ -981,9 +1019,10 @@ fn hook_ingest_stop() {
         .write_stdin(json.to_string())
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains("0 件"));
 
-    // Verify role=assistant, content=[session stop]
+    // Stop events should not be persisted.
     let output = cmd()
         .args(["message", "read", "--thread", &thread_id, "--format", "json"])
         .env("AIBOARD_DATA_DIR", &db_path)
@@ -994,9 +1033,7 @@ fn hook_ingest_stop() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let arr = parsed.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["role"], "assistant");
-    assert_eq!(arr[0]["content"], "[session stop]");
+    assert_eq!(arr.len(), 0);
 }
 
 #[test]
@@ -1551,4 +1588,139 @@ fn close_nonexistent_thread() {
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
         .failure();
+}
+
+// --- Thread phase tests ---
+
+#[test]
+fn thread_set_phase() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-test");
+
+    // Set phase to planning
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "planning"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを planning に設定しました"));
+
+    // Verify via JSON list
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr[0]["phase"], "planning");
+
+    // Change to implementing
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "implementing"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを implementing に設定しました"));
+
+    // Verify
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr[0]["phase"], "implementing");
+}
+
+#[test]
+fn thread_set_phase_none() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-none-test");
+
+    // Set phase to reviewing
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "reviewing"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // Clear phase with "none"
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "none"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("フェーズを解除しました"));
+
+    // Verify phase is null in JSON
+    let output = cmd()
+        .args(["thread", "list", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert!(arr[0]["phase"].is_null(), "phase should be null after setting to none");
+}
+
+#[test]
+fn thread_set_phase_invalid() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-invalid-test");
+
+    // Set invalid phase - should fail
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "invalid-phase"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn thread_list_shows_phase() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "phase-list-test");
+
+    // Before setting phase, list should show "-" for phase
+    let output = cmd()
+        .args(["thread", "list"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("-\t"), "should show '-' for no phase");
+
+    // Set phase to done
+    cmd()
+        .args(["thread", "set-phase", &thread_id, "done"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success();
+
+    // List should now show "done"
+    let output = cmd()
+        .args(["thread", "list"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("done"), "should show 'done' phase in list output");
+}
+
+#[test]
+fn thread_help_shows_set_phase() {
+    cmd()
+        .args(["thread", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("set-phase"));
 }

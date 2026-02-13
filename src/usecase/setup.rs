@@ -80,6 +80,9 @@ aiboard message read --thread <スレッドID>
 aiboard message read --thread <スレッドID> --full
 
 # 5. 最新メッセージ一覧（全スレッド横断）
+aiboard message read
+aiboard message read --limit 50
+# 互換コマンド（従来の一覧）
 aiboard message list
 aiboard message list --limit 50
 
@@ -95,7 +98,7 @@ aiboard message search "JWT" --full
 
 - **UserPromptSubmit**: ユーザーの入力
 - **PostToolUse (AskUserQuestion のみ)**: ユーザーへの質問と回答を `[決定] Q: ... / A: ...` 形式で保存
-- **Stop**: セッション終了
+- **Stop**: 受信するが、ノイズ削減のため保存しない
 
 ※ AskUserQuestion 以外のツールイベントはDB容量節約のためスキップされます。
 
@@ -103,7 +106,7 @@ aiboard message search "JWT" --full
 
 ### メッセージ管理
 - `aiboard message post --thread <id> --content <text>` - メッセージを投稿
-- `aiboard message read --thread <id> [--full]` - スレッドのメッセージを読み取り
+- `aiboard message read [--thread <id>] [--limit N] [--full]` - メッセージを読み取り（thread 省略時は全スレッドの最新）
 - `aiboard message list [--limit N] [--full]` - 最新メッセージを一覧表示（デフォルト20件）
 - `aiboard message search <query> [--full]` - メッセージを検索
 - `aiboard message update <id> --content <text>` - メッセージを更新
