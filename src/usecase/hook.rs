@@ -167,8 +167,8 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
             if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
                 if let Some(role) = entry.get("role").and_then(|r| r.as_str()) {
                     if role == "assistant" {
-                        if let Some(text) = entry.get("content").and_then(|c| c.as_str()) {
-                            last_assistant_content = Some(text.to_string());
+                        if let Some(text) = Self::extract_text_content(&entry) {
+                            last_assistant_content = Some(text);
                         }
                     }
                 }
@@ -176,6 +176,42 @@ impl<T: ThreadRepository, R: MessageRepository> HookUseCase<T, R> {
         }
 
         last_assistant_content
+    }
+
+    /// Extract text from a transcript entry's "content" field.
+    /// Handles both string format and array-of-blocks format:
+    ///   - String: "content": "hello"
+    ///   - Array:  "content": [{"type":"text","text":"hello"}, ...]
+    fn extract_text_content(entry: &serde_json::Value) -> Option<String> {
+        let content = entry.get("content")?;
+
+        // Case 1: content is a plain string
+        if let Some(s) = content.as_str() {
+            if s.is_empty() {
+                return None;
+            }
+            return Some(s.to_string());
+        }
+
+        // Case 2: content is an array of content blocks
+        if let Some(arr) = content.as_array() {
+            let texts: Vec<&str> = arr
+                .iter()
+                .filter_map(|block| {
+                    if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        block.get("text").and_then(|t| t.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if texts.is_empty() {
+                return None;
+            }
+            return Some(texts.join("\n"));
+        }
+
+        None
     }
 
     /// Parse AskUserQuestion tool_response into "Q: ... / A: ..." format.
