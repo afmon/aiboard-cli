@@ -464,9 +464,12 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
     }
 
     fn search(&self, query: &str, thread_id: Option<&str>) -> Result<Vec<Message>, DomainError> {
-        // Try FTS5 first, fall back to LIKE
-        self.search_fts(query, thread_id)
-            .or_else(|_| self.search_like(query, thread_id))
+        // Prefer FTS5 for speed, but fall back to LIKE when FTS is unavailable
+        // or when FTS returns no hits (e.g. very short query terms).
+        match self.search_fts(query, thread_id) {
+            Ok(messages) if !messages.is_empty() => Ok(messages),
+            Ok(_) | Err(_) => self.search_like(query, thread_id),
+        }
     }
 
     fn update_content(&self, id: &str, content: &str) -> Result<(), DomainError> {

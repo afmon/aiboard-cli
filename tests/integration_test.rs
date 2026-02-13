@@ -681,6 +681,23 @@ fn search_with_sql_wildcards() {
         .stdout(predicate::str::contains("file_name.txt"));
 }
 
+#[test]
+fn search_falls_back_to_like_when_fts_returns_empty() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "like-fallback-test");
+
+    post_message(&db_path, &thread_id, "abcdefg");
+
+    // "bc" is shorter than trigram size, so FTS may return no rows.
+    // Verify we still find it via LIKE fallback.
+    cmd()
+        .args(["message", "search", "bc", "--thread", &thread_id])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("abcdefg"));
+}
+
 // --- CLI filter tests ---
 
 #[test]
