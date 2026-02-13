@@ -279,7 +279,6 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             full,
             format,
         } => {
-            let full_thread_id = thread_uc.resolve_id(&thread)?;
             let running = Arc::new(AtomicBool::new(true));
             let r = running.clone();
             ctrlc::set_handler(move || {
@@ -287,34 +286,69 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             })
             .context("Ctrl-C ハンドラーの設定に失敗しました")?;
 
-            // 最後に表示した message の created_at を記録
-            let messages = message_uc.read(&full_thread_id)?;
-            let mut last_ts = messages.last().map(|m| m.created_at);
+            match thread {
+                Some(ref thread_id) => {
+                    // 特定スレッドを監視
+                    let full_thread_id = thread_uc.resolve_id(thread_id)?;
+                    let messages = message_uc.read(&full_thread_id)?;
+                    let mut last_ts = messages.last().map(|m| m.created_at);
 
-            eprintln!(
-                "thread {} を監視中... (Ctrl-C で終了)",
-                &full_thread_id[..8.min(full_thread_id.len())]
-            );
+                    eprintln!(
+                        "thread {} を監視中... (Ctrl-C で終了)",
+                        &full_thread_id[..8.min(full_thread_id.len())]
+                    );
 
-            while running.load(Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_secs(interval));
-                if !running.load(Ordering::SeqCst) {
-                    break;
-                }
+                    while running.load(Ordering::SeqCst) {
+                        std::thread::sleep(std::time::Duration::from_secs(interval));
+                        if !running.load(Ordering::SeqCst) {
+                            break;
+                        }
 
-                let all = message_uc.read(&full_thread_id)?;
-                let new_msgs: Vec<_> = match last_ts {
-                    Some(ts) => all.into_iter().filter(|m| m.created_at > ts).collect(),
-                    None => all,
-                };
+                        let all = message_uc.read(&full_thread_id)?;
+                        let new_msgs: Vec<_> = match last_ts {
+                            Some(ts) => all.into_iter().filter(|m| m.created_at > ts).collect(),
+                            None => all,
+                        };
 
-                if !new_msgs.is_empty() {
-                    if let Some(m) = new_msgs.last() {
-                        last_ts = Some(m.created_at);
+                        if !new_msgs.is_empty() {
+                            if let Some(m) = new_msgs.last() {
+                                last_ts = Some(m.created_at);
+                            }
+                            match format.as_str() {
+                                "json" => println!("{}", formatter::format_messages_json(&new_msgs)),
+                                _ => println!("{}", formatter::format_messages_text(&new_msgs, full)),
+                            }
+                        }
                     }
-                    match format.as_str() {
-                        "json" => println!("{}", formatter::format_messages_json(&new_msgs)),
-                        _ => println!("{}", formatter::format_messages_text(&new_msgs, full)),
+                }
+                None => {
+                    // 全スレッドから監視
+                    let messages = message_uc.list_recent(100)?;
+                    let mut last_ts = messages.last().map(|m| m.created_at);
+
+                    eprintln!("全スレッドを監視中... (Ctrl-C で終了)");
+
+                    while running.load(Ordering::SeqCst) {
+                        std::thread::sleep(std::time::Duration::from_secs(interval));
+                        if !running.load(Ordering::SeqCst) {
+                            break;
+                        }
+
+                        let all = message_uc.list_recent(100)?;
+                        let new_msgs: Vec<_> = match last_ts {
+                            Some(ts) => all.into_iter().filter(|m| m.created_at > ts).collect(),
+                            None => all,
+                        };
+
+                        if !new_msgs.is_empty() {
+                            if let Some(m) = new_msgs.last() {
+                                last_ts = Some(m.created_at);
+                            }
+                            match format.as_str() {
+                                "json" => println!("{}", formatter::format_messages_json(&new_msgs)),
+                                _ => println!("{}", formatter::format_messages_text(&new_msgs, full)),
+                            }
+                        }
                     }
                 }
             }

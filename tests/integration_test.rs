@@ -2002,11 +2002,3 @@ fn watch_nonexistent_thread() {
         .failure();
 }
 
-#[test]
-fn watch_requires_thread_arg() {
-    cmd()
-        .args(["message", "watch"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--thread"));
-}

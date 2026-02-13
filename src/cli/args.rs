@@ -147,9 +147,9 @@ pub enum MessageAction {
     },
     /// thread の新着 message をリアルタイム監視する
     Watch {
-        /// thread ID
+        /// thread ID（省略時は全 thread から監視）
         #[arg(long)]
-        thread: String,
+        thread: Option<String>,
         /// ポーリング間隔（秒）
         #[arg(long, default_value = "3")]
         interval: u64,
