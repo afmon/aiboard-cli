@@ -58,6 +58,22 @@ impl<R: MessageRepository> MessageUseCase<R> {
         self.repo.search(query, thread_id)
     }
 
+    pub fn find_mentions(
+        &self,
+        thread_id: Option<&str>,
+        mention_target: &str,
+    ) -> Result<Vec<Message>, DomainError> {
+        self.repo.find_mentions(thread_id, mention_target)
+    }
+
+    pub fn count_mentions(
+        &self,
+        thread_id: Option<&str>,
+        mention_target: &str,
+    ) -> Result<usize, DomainError> {
+        self.repo.count_mentions(thread_id, mention_target)
+    }
+
     pub fn update(&self, short_id: &str, content: &str) -> Result<String, DomainError> {
         let full_id = self.repo.resolve_short_id(short_id)?;
         self.repo.update_content(&full_id, content)?;

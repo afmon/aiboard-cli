@@ -88,7 +88,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 role,
                 &body,
                 session.as_deref(),
-                sender.as_deref(),
+                Some(&sender),
                 metadata_val,
                 parent.as_deref(),
             )?;
@@ -102,6 +102,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             after,
             full,
             format,
+            sender,
         } => {
             let full_thread_id = thread_uc.resolve_id(&thread)?;
             let mut messages = message_uc.read(&full_thread_id)?;
@@ -127,9 +128,16 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                     }
                 }
             }
+
+            if let Some(ref s) = sender {
+                let count = message_uc.count_mentions(None, s)?;
+                if count > 0 {
+                    eprintln!("{}", formatter::format_mention_notification(s, count));
+                }
+            }
         }
 
-        MessageAction::List { limit, full, format } => {
+        MessageAction::List { limit, full, format, sender } => {
             let messages = message_uc.list_recent(limit)?;
             match format.as_str() {
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
@@ -140,6 +148,13 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                     }
                 }
             }
+
+            if let Some(ref s) = sender {
+                let count = message_uc.count_mentions(None, s)?;
+                if count > 0 {
+                    eprintln!("{}", formatter::format_mention_notification(s, count));
+                }
+            }
         }
 
         MessageAction::Search {
@@ -147,6 +162,7 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
             thread,
             full,
             format,
+            sender,
         } => {
             let resolved_thread = thread
                 .as_deref()
@@ -157,6 +173,26 @@ pub fn handle_message<T: ThreadRepository, M: MessageRepository>(
                 "json" => println!("{}", formatter::format_messages_json(&messages)),
                 _ => {
                     println!("{}", formatter::format_messages_search(&messages, &query, full));
+                    if !full && formatter::any_content_truncated(&messages) {
+                        eprintln!("(全文を表示するには --full を付けてください)");
+                    }
+                }
+            }
+
+            if let Some(ref s) = sender {
+                let count = message_uc.count_mentions(None, s)?;
+                if count > 0 {
+                    eprintln!("{}", formatter::format_mention_notification(s, count));
+                }
+            }
+        }
+
+        MessageAction::Mentions { sender, full, format } => {
+            let messages = message_uc.find_mentions(None, &sender)?;
+            match format.as_str() {
+                "json" => println!("{}", formatter::format_messages_json(&messages)),
+                _ => {
+                    println!("{}", formatter::format_messages_text(&messages, full));
                     if !full && formatter::any_content_truncated(&messages) {
                         eprintln!("(全文を表示するには --full を付けてください)");
                     }
