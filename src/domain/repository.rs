@@ -22,4 +22,6 @@ pub trait MessageRepository {
     fn delete_by_thread(&self, thread_id: &str) -> Result<usize, DomainError>;
     fn delete_by_session(&self, session_id: &str) -> Result<usize, DomainError>;
     fn delete_older_than(&self, before: &chrono::DateTime<chrono::Utc>) -> Result<usize, DomainError>;
+    fn find_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<Vec<Message>, DomainError>;
+    fn count_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<usize, DomainError>;
 }

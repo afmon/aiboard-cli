@@ -23,15 +23,20 @@ fn create_thread(db_path: &str, title: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
-/// Test helper: post a message and return its ID.
-fn post_message(db_path: &str, thread_id: &str, content: &str) -> String {
+/// Test helper: post a message with a specific sender and return its ID.
+fn post_message_with_sender(db_path: &str, thread_id: &str, content: &str, sender: &str) -> String {
     let output = cmd()
-        .args(["message", "post", "--thread", thread_id, "--content", content])
+        .args(["message", "post", "--thread", thread_id, "--content", content, "--sender", sender])
         .env("AIBOARD_DATA_DIR", db_path)
         .output()
         .unwrap();
     assert!(output.status.success(), "failed to post message");
     String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+/// Test helper: post a message with default sender and return its ID.
+fn post_message(db_path: &str, thread_id: &str, content: &str) -> String {
+    post_message_with_sender(db_path, thread_id, content, "test-agent")
 }
 
 #[test]
@@ -179,7 +184,7 @@ fn message_post_from_stdin() {
 
     // Post via stdin
     cmd()
-        .args(["message", "post", "--thread", &thread_id])
+        .args(["message", "post", "--thread", &thread_id, "--sender", "test-agent"])
         .write_stdin("message from stdin")
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
@@ -208,13 +213,13 @@ fn message_search() {
     let thread_id = String::from_utf8(output.stdout).unwrap().trim().to_string();
 
     cmd()
-        .args(["message", "post", "--thread", &thread_id, "--content", "the quick brown fox"])
+        .args(["message", "post", "--thread", &thread_id, "--content", "the quick brown fox", "--sender", "test-agent"])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success();
 
     cmd()
-        .args(["message", "post", "--thread", &thread_id, "--content", "lazy dog sleeps"])
+        .args(["message", "post", "--thread", &thread_id, "--content", "lazy dog sleeps", "--sender", "test-agent"])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success();
@@ -249,7 +254,7 @@ fn message_update() {
     let thread_id = String::from_utf8(output.stdout).unwrap().trim().to_string();
 
     let output = cmd()
-        .args(["message", "post", "--thread", &thread_id, "--content", "original content"])
+        .args(["message", "post", "--thread", &thread_id, "--content", "original content", "--sender", "test-agent"])
         .env("AIBOARD_DATA_DIR", db_path)
         .output()
         .unwrap();
@@ -292,6 +297,7 @@ fn cleanup_by_session() {
             "--thread", &thread_id,
             "--content", "session message",
             "--session", "sess-123",
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
@@ -362,6 +368,7 @@ fn invalid_role_rejected() {
             "--thread", &thread_id,
             "--role", "invalid_role",
             "--content", "test",
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
@@ -389,7 +396,7 @@ fn cleanup_age_zero() {
     let thread_id = String::from_utf8(output.stdout).unwrap().trim().to_string();
 
     cmd()
-        .args(["message", "post", "--thread", &thread_id, "--content", "old message"])
+        .args(["message", "post", "--thread", &thread_id, "--content", "old message", "--sender", "test-agent"])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success();
@@ -420,6 +427,7 @@ fn invalid_metadata_json_rejected() {
             "--thread", &thread_id,
             "--content", "test",
             "--metadata", "not valid json{{{",
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
@@ -497,7 +505,7 @@ fn message_read_json_is_valid_json() {
     let thread_id = String::from_utf8(output.stdout).unwrap().trim().to_string();
 
     cmd()
-        .args(["message", "post", "--thread", &thread_id, "--content", "json test message"])
+        .args(["message", "post", "--thread", &thread_id, "--content", "json test message", "--sender", "test-agent"])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
         .success();
@@ -536,6 +544,7 @@ fn message_post_with_valid_metadata() {
             "--thread", &thread_id,
             "--content", "with metadata",
             "--metadata", r#"{"key": "value", "num": 42}"#,
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", db_path)
         .assert()
@@ -617,7 +626,7 @@ fn nul_byte_in_content_rejected() {
     let thread_id = create_thread(&db_path, "nul-test");
 
     cmd()
-        .args(["message", "post", "--thread", &thread_id])
+        .args(["message", "post", "--thread", &thread_id, "--sender", "test-agent"])
         .write_stdin("hello\0world")
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
@@ -1061,6 +1070,7 @@ fn message_post_all_roles() {
                 "--thread", &thread_id,
                 "--role", role,
                 "--content", &format!("{} message", role),
+                "--sender", "test-agent",
             ])
             .env("AIBOARD_DATA_DIR", &db_path)
             .assert()
@@ -1142,6 +1152,7 @@ fn cleanup_session_creates_backup_by_default() {
             "--thread", &thread_id,
             "--content", "backup session message",
             "--session", "sess-backup",
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
@@ -1201,6 +1212,7 @@ fn cleanup_session_no_backup_skips_backup() {
             "--thread", &thread_id,
             "--content", "no backup session message",
             "--session", "sess-no-backup",
+            "--sender", "test-agent",
         ])
         .env("AIBOARD_DATA_DIR", &db_path)
         .assert()
@@ -1237,4 +1249,134 @@ fn backup_file_naming_format() {
     let timestamp_part = &name["aiboard.db.bak.".len()..];
     assert_eq!(timestamp_part.len(), 14, "timestamp should be 14 digits (YYYYMMDDHHmmss)");
     assert!(timestamp_part.chars().all(|c| c.is_ascii_digit()), "timestamp should be all digits");
+}
+
+// --- Mention tests ---
+
+#[test]
+fn message_mentions_finds_at_mention() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "mention-test");
+
+    post_message_with_sender(&db_path, &thread_id, "Hey @Bob check this", "Alice");
+    post_message_with_sender(&db_path, &thread_id, "No mention here", "Charlie");
+    post_message_with_sender(&db_path, &thread_id, "@Bob another one", "Dave");
+
+    // mentions --sender Bob should find 2 messages
+    let output = cmd()
+        .args(["message", "mentions", "--sender", "Bob", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "should find 2 messages mentioning @Bob");
+}
+
+#[test]
+fn message_mentions_boundary_filter() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "mention-boundary-test");
+
+    post_message_with_sender(&db_path, &thread_id, "Hello @alice!", "Bob");
+    post_message_with_sender(&db_path, &thread_id, "Hello @alicex", "Charlie");
+    post_message_with_sender(&db_path, &thread_id, "@alice at start", "Dave");
+    post_message_with_sender(&db_path, &thread_id, "end @alice", "Eve");
+
+    // mentions --sender alice should find 3, not 4 (@alicex should not match)
+    let output = cmd()
+        .args(["message", "mentions", "--sender", "alice", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 3, "should find 3 messages (boundary filter excludes @alicex)");
+}
+
+#[test]
+fn message_post_requires_sender() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "sender-required-test");
+
+    // Post without --sender should fail
+    cmd()
+        .args(["message", "post", "--thread", &thread_id, "--content", "test"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn mention_notification_on_read() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "mention-notify-test");
+
+    post_message_with_sender(&db_path, &thread_id, "Hey @Bob check this", "Alice");
+
+    // Read with --sender Bob should show mention notification on stderr
+    cmd()
+        .args(["message", "read", "--thread", &thread_id, "--sender", "Bob"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("@Bob"))
+        .stderr(predicate::str::contains("メンション"));
+}
+
+#[test]
+fn mention_notification_not_shown_when_zero() {
+    let (_dir, db_path) = test_db();
+    let thread_id = create_thread(&db_path, "mention-zero-test");
+
+    post_message_with_sender(&db_path, &thread_id, "No mentions here", "Alice");
+
+    // Read with --sender Bob should NOT show mention notification (0 mentions)
+    let output = cmd()
+        .args(["message", "read", "--thread", &thread_id, "--sender", "Bob"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains("メンション"), "should not show mention notification for 0 mentions");
+}
+
+#[test]
+fn mentions_cross_thread() {
+    let (_dir, db_path) = test_db();
+    let thread_a = create_thread(&db_path, "mention-cross-a");
+    let thread_b = create_thread(&db_path, "mention-cross-b");
+
+    post_message_with_sender(&db_path, &thread_a, "Hey @Bob in thread A", "Alice");
+    post_message_with_sender(&db_path, &thread_b, "Hey @Bob in thread B", "Charlie");
+
+    // mentions --sender Bob should find both (cross-thread)
+    let output = cmd()
+        .args(["message", "mentions", "--sender", "Bob", "--format", "json"])
+        .env("AIBOARD_DATA_DIR", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "should find mentions across threads");
+}
+
+#[test]
+fn message_help_shows_mentions() {
+    cmd()
+        .args(["message", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mentions"));
 }

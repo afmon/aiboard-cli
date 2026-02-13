@@ -52,9 +52,9 @@ pub enum MessageAction {
         /// session ID
         #[arg(long)]
         session: Option<String>,
-        /// 送信者名
+        /// 送信者名（必須）
         #[arg(long)]
-        sender: Option<String>,
+        sender: String,
         /// 親 message の ID
         #[arg(long)]
         parent: Option<String>,
@@ -82,6 +82,9 @@ pub enum MessageAction {
         /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
+        /// メンション通知対象の送信者名
+        #[arg(long)]
+        sender: Option<String>,
     },
     /// 最新の message を一覧表示する
     List {
@@ -94,6 +97,9 @@ pub enum MessageAction {
         /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
+        /// メンション通知対象の送信者名
+        #[arg(long)]
+        sender: Option<String>,
     },
     /// message を検索する
     Search {
@@ -106,6 +112,21 @@ pub enum MessageAction {
         #[arg(long)]
         full: bool,
         /// 出力形式（text, json, markdown）
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// メンション通知対象の送信者名
+        #[arg(long)]
+        sender: Option<String>,
+    },
+    /// 自分宛てのメンションを表示する
+    Mentions {
+        /// 送信者名（必須）
+        #[arg(long)]
+        sender: String,
+        /// 内容を省略せず全文表示する
+        #[arg(long)]
+        full: bool,
+        /// 出力形式（text, json）
         #[arg(long, default_value = "text")]
         format: String,
     },

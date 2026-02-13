@@ -130,6 +130,10 @@ pub fn format_threads_json(threads: &[Thread]) -> String {
     serde_json::to_string_pretty(threads).unwrap_or_else(|_| "[]".to_string())
 }
 
+pub fn format_mention_notification(sender: &str, count: usize) -> String {
+    format!("@{}: {}件のメンションがあります", sender, count)
+}
+
 pub fn format_message_posted(msg: &Message) -> String {
     format!("{}", msg.id)
 }

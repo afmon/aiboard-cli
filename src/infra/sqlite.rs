@@ -406,9 +406,63 @@ impl<'a> MessageRepository for SqliteMessageRepository<'a> {
         Ok(self.conn
             .execute("DELETE FROM messages WHERE created_at < ?1", params![cutoff])?)
     }
+
+    fn find_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<Vec<Message>, DomainError> {
+        let escaped = mention_target.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pattern = format!("%@{}%", escaped);
+
+        let messages: Vec<Message> = match thread_id {
+            Some(tid) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                     FROM messages WHERE thread_id = ?1 AND content LIKE ?2 ESCAPE '\\' ORDER BY created_at DESC"
+                )?;
+                let rows = stmt.query_map(params![tid, pattern], Self::row_to_message)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+            None => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, thread_id, session_id, sender, role, content, metadata, parent_id, source, created_at, updated_at
+                     FROM messages WHERE content LIKE ?1 ESCAPE '\\' ORDER BY created_at DESC"
+                )?;
+                let rows = stmt.query_map(params![pattern], Self::row_to_message)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+        };
+
+        Ok(Self::filter_mention_boundary(messages, mention_target))
+    }
+
+    fn count_mentions(&self, thread_id: Option<&str>, mention_target: &str) -> Result<usize, DomainError> {
+        self.find_mentions(thread_id, mention_target).map(|v| v.len())
+    }
 }
 
 impl<'a> SqliteMessageRepository<'a> {
+    /// Filter messages to ensure `@mention_target` is followed by a non-word character or EOF.
+    /// This prevents `@alice` from matching `@alicex`.
+    fn filter_mention_boundary(messages: Vec<Message>, mention_target: &str) -> Vec<Message> {
+        let mention = format!("@{}", mention_target);
+        messages.into_iter().filter(|msg| {
+            let content = &msg.content;
+            let mut start = 0;
+            while let Some(pos) = content[start..].find(&mention) {
+                let abs_pos = start + pos + mention.len();
+                if abs_pos >= content.len() {
+                    return true; // mention at EOF
+                }
+                let next_char = content[abs_pos..].chars().next().unwrap();
+                if !next_char.is_alphanumeric() && next_char != '_' {
+                    return true; // followed by non-word character
+                }
+                start = start + pos + 1;
+            }
+            false
+        }).collect()
+    }
+
     fn query_messages(&self, base_sql: &str, thread_filter: &str, search_param: &str, thread_id: Option<&str>) -> Result<Vec<Message>, DomainError> {
         let sql = match thread_id {
             Some(_) => format!("{} {} ORDER BY created_at DESC", base_sql, thread_filter),
